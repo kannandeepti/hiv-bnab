@@ -11,7 +11,7 @@ class Simulation(Parameters):
         super().__init__()
 
 
-    def getnumTcells(self) -> np.ndarray:
+    def get_num_tcells(self) -> np.ndarray:  # todo make part of parameters
         tspan = np.arange(0, self.tmax + self.dt, self.dt)
 
         if self.tmax <= 14:
@@ -23,18 +23,22 @@ class Simulation(Parameters):
                 num_tcells[i] = num_tcells[i - 1] * np.exp(-self.d_Tfh * self.dt)
 
         return num_tcells
+    
+
+    def create_bcells(self) -> Bcells: #XXX
+        return Bcells()
 
 
-    def get_naive_bcells_for_one_gc(self) -> Bcells:
+    def get_naive_bcells(self) -> Bcells:
         naive_bcells = Bcells() #XXX
-        naive_bcells_arr = XXX.get_naive_bcells_arr()
-        sigma = XXX.get_sigma()
+        naive_bcells_arr = naive_bcells.get_naive_bcells_arr()
+        sigma = naive_bcells.get_sigma()
         randu = np.random.uniform(size=naive_bcells_arr.shape)
         naive_bcells_int = np.floor(naive_bcells_arr + randu).astype(int)
 
         # Bin at which the value of frequency is 1 for dominant/subdominant cells
         # 6 to 8 with interval of 0.2
-        fitness_array = np.linspace(self.f0, self.f0 + 2, self.num_class_bins)
+        fitness_array = np.linspace(self.E0, self.E0 + 2, self.num_class_bins)  # todo make part of parameter class
 
         # Stochastically round up or down the frequency to get integer numbers
         # Indexing takes care of the epitope type
@@ -44,17 +48,17 @@ class Simulation(Parameters):
                 idx_new = idx + naive_bcells_int[ep, j]
                 naive_bcells.lineage[idx: idx_new] = np.arange(idx, idx_new) + 1
                 naive_bcells.target_epitope[idx: idx_new] = ep + 1
-                # XXX assuming all variants except WT are f0
+                # XXX assuming all variants except WT are E0
                 naive_bcells.variant_affinities[idx: idx_new, 0] = fitness          # Vax Strain aff
-                naive_bcells.variant_affinities[idx: idx_new, 1:self.nvar] = self.f0    # Variant1 aff
+                naive_bcells.variant_affinities[idx: idx_new, 1:self.nvar] = self.E0    # Variant1 aff
 
-                dE = XXX.get_dE(idx_new, idx, sigma, ep)
+                dE = naive_bcells.get_dE(idx_new, idx, sigma, ep)
                 for var in range(self.n_var):
 
                     reshaped = np.reshape(
                         dE[:, var], (idx_new - idx, self.n_res), order='F')
 
-                    naive_bcells.precalculated_affinity_changes[
+                    naive_bcells.precalculated_dEs[
                         var][idx:idx_new, :] = reshaped
 
                 idx = idx_new
@@ -62,63 +66,89 @@ class Simulation(Parameters):
         return naive_bcells
     
 
-    def run_gc(self, gc_idx) -> None:
-        seeding_bcells_idx = self.naive_bcells[gc_idx].naive_flux_for_one_gc(conc)  # rename naive_flux_for_one_gc to enter_gc_egc
-        self.add_bcells(
-            self.gc_bcells[gc_idx], self.naive_bcells[gc_idx], seeding_bcells_idx
-        )
+    def set_death_rates(self) -> None:
+        for gc_idx in range(self.num_gc):
+            self.gc_bcells[gc_idx].death_rate = self.bcell_death_rate
+        self.egc_bcells.death_rate = self.bcell_death_rate
+        self.plasma_bcells.death_rate = utils.get_death_rate(self.plasma_half_life)
+        self.memory_bcells.death_rate = utils.get_death_rate(self.memory_half_life)
+    
+
+    def create_populations(self) -> None:
+
+        self.gc_bcells = [Bcells() for _ in range(self.num_gc)]
+        self.naive_bcells = [Bcells() for _ in range(self.num_gc)]
+        for gc_idx in range(self.num_gc):
+            self.gc_bcells[gc_idx] = self.create_bcells()
+            self.naive_bcells[gc_idx] = self.get_naive_bcells()
+
+        self.egc_bcells = self.create_bcells()
+        self.plasma_bcells = self.create_bcells()
+        self.memory_bcells = self.create_bcells()
+
+        self.set_death_rates()
+    
+
+    def run_gc(self, gc_idx: int) -> None:
+        seeding_bcells = self.naive_bcells[gc_idx].get_seeding_bcells(conc)
+        self.gc_bcells[gc_idx].add_bcells(seeding_bcells)
 
         if self.seed_with_memory:
-            seeding_mem_bcells_idx = self.memory_bcells.naive_flux_for_one_gc(conc)
-            self.add_bcells(
-                self.gc_bcells[gc_idx], self.memory_bcells, seeding_mem_bcells_idx
-            )
+            seeding_memory_bcells = self.memory_bcells.get_seeding_bcells(conc)
+            self.gc_bcells[gc_idx].add_bcells(seeding_memory_bcells)
 
-        birth_idx = self.gc_bcells[gc_idx].birth(conc, tcell, self.beta_max)
-        self.add_bcells(self.gc_bcells[gc_idx], self.gc_bcells[gc_idx], birth_idx) # no mutation yet XXX
+        birth_bcells = self.gc_bcells[gc_idx].birth_mutate(conc, tcell)# no mutation yet XXX
 
-        # no export of cells yet
+        divided_bcells = birth_bcells.divide_birth()
+        exported_memory_bcells = divided_bcells[0]
+        exported_plasma_bcells = divided_bcells[1]
+        nonexported_bcells = divided_bcells[2]
 
-        death_idx = self.gc_bcells[gc_idx].death(self.mu)
-        self.gc_bcells[gc_idx].kill(death_idx)
+        self.memory_bcells.add_bcells(exported_memory_bcells)
+        self.plasma_bcells.add_bcells(exported_plasma_bcells)
+        self.gc_bcells[gc_idx].add_bcells(nonexported_bcells)
+
+        self.gc_bcells[gc_idx].kill()
 
 
     def run_egc(self) -> None:
-        seeding_mem_bcells_idx = self.memory_bcells.enter_gc_egc(conc)
-        self.add_bcells(
-            self.egc_bcells, self.memory_bcells, seeding_mem_bcells_idx
-        )
+        seeding_bcells = self.memory_bcells.get_seeding_bcells(conc)
+        self.egc_bcells.add_bcells(seeding_bcells)
 
-        birth_idx = self.egc_bcells.birth(conc, tcell_XXX, self.XXX)
-        self.add_bcells(self.egc_bcells, self.egc_bcells, birth_idx)  # no need for mutation
+        birth_bcells = self.egc_bcells.birth_mutate(conc, tcell, mutate=False)  # no need for mutation
 
-        # no export of cells yet
+        divided_bcells = birth_bcells.divide_birth()
+        exported_memory_bcells = divided_bcells[0]
+        exported_plasma_bcells = divided_bcells[1]
+        nonexported_bcells = divided_bcells[2]  # should be empty, leaving here in case we change later
 
-        death_idx = self.egc_bcells.death(self.mu_XXX)  # probably want to combine .death and .kill into one function
-        self.egc_bcells.kill(death_idx)
+        self.memory_bcells.add_bcells(exported_memory_bcells)
+        self.plasma_bcells.add_bcells(exported_plasma_bcells)
+        self.egc_bcells.add_bcells(nonexported_bcells)
+
+        self.egc_bcells.kill()
 
 
     def run_timestep(self) -> None:
-        for gc_idx, _ in enumerate(self.gc_bcells):
+        for gc_idx in range(self.num_gc):
             self.run_gc(gc_idx)
 
         if self.current_time < self.egc_stop_time:
             self.run_egc()
 
-        pc_death_idx = self.plasma_bcells.death(self.mu_pc)
-        mem_death_idx = self.memory_bcells.death(self.mu_mem)
-        self.plasma_bcells.kill(pc_death_idx)
-        self.memory_bcells.kill(mem_death_idx)
+        # Kill memory and plasma Bcells
+        self.plasma_bcells.kill()
+        self.memory_bcells.kill()
 
         self.update_concentrations(conc)
 
 
     def run(self) -> None:
-        self.create_bcells()
+        self.create_populations()
 
-        for _ in range(self.num_timesteps):
+        for timestep_idx in range(self.num_timesteps):
             self.run_timestep()
-            self.current_time += self.dt
+            self.current_time = timestep_idx * self.dt
 
 
 
