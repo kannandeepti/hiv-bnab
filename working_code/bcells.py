@@ -10,6 +10,7 @@ class Bcells(Parameters):
 
 
     def __init__(self, max_num_bcells: int):
+        super().__init__()
 
         self.max_num_bcells = max_num_bcells
 
@@ -17,13 +18,13 @@ class Bcells(Parameters):
         self.birth_rate = None
         self.death_rate = None
 
-        self.mutation_state_array = np.zeros((self.max_num_bcells, self.num_res)) # (num_bcell, num_res)
-        self.precalculated_dEs = np.zeros((self.max_num_bcells, self.num_res)) # (num_bcell, num_res)
-        self.lineage = np.zeros(self.max_num_bcells) # (num_bcell), i think 0 indicates empty b cell
-        self.target_epitope = np.zeros(self.max_num_bcells)  # (num_bcell)
-        self.variant_affinities = np.zeros(self.max_num_bcells, self.n_var)  # (num_bcell, num_var)
-        self.activated_time = np.zeros(self.max_num_bcells) # (num_bcell)
-        self.num_mut = np.zeros(self.max_num_bcells) # (num_bcell) ???
+        self.mutation_state_array = np.zeros((self.max_num_bcells, self.num_res), dtype=int)  # (num_bcell, num_res)
+        self.precalculated_dEs = np.zeros((self.max_num_bcells, self.num_res, self.n_var))    # (num_bcell, num_res, n_var)
+        self.lineage = np.zeros(self.max_num_bcells)                                          # (num_bcell), i think 0 indicates empty b cell
+        self.target_epitope = np.zeros(self.max_num_bcells)                                   # (num_bcell)
+        self.variant_affinities = np.zeros(self.max_num_bcells, self.n_var)                   # (num_bcell, num_var)
+        self.activated_time = np.zeros(self.max_num_bcells)                                   # (num_bcell)
+        self.num_mut = np.zeros(self.max_num_bcells)                                          # (num_bcell) ???
         self.mutation_state1 = None#???
         self.mutation_state2 = None
         self.unique_clone_index = None
@@ -42,9 +43,15 @@ class Bcells(Parameters):
         ]
     
 
-    def replace_all_arrays(self, idx) -> None:
+    def replace_all_arrays(self, idx: np.ndarray) -> None:
         for array_name in self.array_names:
             setattr(self, array_name, getattr(self, array_name)[idx])
+
+
+    def filter_all_arrays(self, idx: np.ndarray) -> None:
+        other_idx = utils.get_other_idx(np.arange(self.lineage.size), idx)
+        for array_name in self.array_names:
+            setattr(self, array_name, getattr(self, array_name)[other_idx])
 
 
     def add_bcells(self, bcells: Self) -> None:
@@ -149,8 +156,8 @@ class Bcells(Parameters):
         activated_fitness = activated * activation_signal
         avg_fitness = activated_fitness[activated_fitness > 0].mean()
         tcell_help = tcell / activated.sum() / avg_fitness * activated_fitness
-        birth_rate = self.birth_rate * (tcell_help / (1 + tcell_help))
-        return birth_rate
+        birth_signal = self.birth_rate * (tcell_help / (1 + tcell_help))
+        return birth_signal
 
 
     def get_seeding_idx(self, conc) -> np.ndarray:
@@ -212,26 +219,71 @@ class Bcells(Parameters):
         return birth_idx
     
 
-    def birth_mutate(self, conc, tcell, mutate: bool=True) -> Self:
-        pass  # todo XXX
+    def get_daughter_bcells(self, conc, tcell) -> Self:
+        birth_idx = self.get_birth_idx(conc, tcell)
+        daughter_bcells = self.get_bcells_from_idx(birth_idx)
+        return daughter_bcells
 
 
-    def divide_birth(self) -> Self:
-        pass  # todo XXX
+    def get_mutated_bcells_from_idx(self, idx: np.ndarray) -> Self:
+        mutated_bcells = self.get_bcells_from_idx(idx)
+        mutated_residues = np.random.randint(self.n_res, size=idx.size)
+
+        # Find which bcells are mutated already
+        original_mutation_states = mutated_bcells.mutation_state_array[
+            np.arange(idx.size), mutated_residues
+        ]
+        nonmutated_idx = np.where(original_mutation_states == 0)
+        mutated_idx = np.where(original_mutation_states == 1)
+        if nonmutated_idx[0].size + mutated_idx[0].size != idx.size:
+            raise ValueError('Mutation state array may contain nonbinary values.')
+        
+        # Invert values in mutation_state_array
+        mutated_bcells.mutation_state_array[nonmutated_idx, mutated_residues] += 1
+        mutated_bcells.mutation_state_array[mutated_idx, mutated_residues] -= 1
+
+        # Adjust affinities
+        mutated_bcells.variant_affinities += mutated_bcells.precalculated_dEs[
+            nonmutated_idx, mutated_residues, :
+        ]
+        mutated_bcells.variant_affinities -= mutated_bcells.precalculated_dEs[
+            mutated_idx, mutated_residues, :
+        ]
+
+        if utils.any(mutated_bcells.variant_affinities > self.max_affinity):
+            raise ValueError('Affinity impossibly high.')
+        
+        return mutated_bcells
 
 
-    
+    def divide_bcells(self, mutate: bool=True) -> tuple[Self]:
+        """Divide bcells into memory, plasma, nonexported_bcells."""
+        # Exported indices
+        birth_bcells_idx = np.arange(len(self.lineage))
+        output_idx = utils.get_sample(birth_bcells_idx, p=self.output_prob)
+        plasma_idx = utils.get_sample(output_idx, p=self.output_pc_fraction)
+        memory_idx = utils.get_other_idx(output_idx, plasma_idx)
 
-    def divide_birth_into_mem_and_pc(
-        self, 
-        birth_idx: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray]:
-        if birth_idx.sum():
-            plasmas = np.random.uniform(size=birth_idx.shape) < self.prob_plasma
-            plasma_idx, memory_idx = birth_idx[plasmas], birth_idx[~plasmas]
-        else:
-            plasma_idx, memory_idx = np.array([]), np.array([])
-        return plasma_idx, memory_idx
+        # Nonexported indices
+        nonoutput_idx = utils.get_other_idx(birth_bcells_idx, output_idx)
+        death_idx = utils.get_sample(nonoutput_idx, p=self.mutation_death_prob)
+        nondeath_idx = utils.get_other_idx(nonoutput_idx, death_idx)
+        silent_mutation_idx = utils.get_sample(
+            nondeath_idx, 
+            p=self.mutation_silent_prob * len(nonoutput_idx) / len(nondeath_idx)
+        )
+        affinity_change_idx = utils.get_other_idx(nondeath_idx, silent_mutation_idx)
+
+        # Make the bcells from indices
+        memory_bcells = self.get_bcells_from_idx(memory_idx)
+        plasma_bcells = self.get_bcells_from_idx(plasma_idx)
+        nonmutated_bcells = self.get_bcells_from_idx(silent_mutation_idx)
+        
+        if mutate:
+            mutated_bcells = self.get_mutated_bcells_from_idx(affinity_change_idx)
+            nonmutated_bcells.add_bcells(mutated_bcells)
+
+        return memory_bcells, plasma_bcells, nonmutated_bcells
     
 
     def get_death_idx(self) -> np.ndarray:
@@ -244,7 +296,7 @@ class Bcells(Parameters):
 
     def kill(self) -> None:
         death_idx = self.get_death_idx(self.death_rate)
-        # todo XXX
+        self.filter_all_arrays(death_idx)
 
 
 

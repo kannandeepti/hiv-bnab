@@ -58,8 +58,7 @@ class Simulation(Parameters):
                     reshaped = np.reshape(
                         dE[:, var], (idx_new - idx, self.n_res), order='F')
 
-                    naive_bcells.precalculated_dEs[
-                        var][idx:idx_new, :] = reshaped
+                    naive_bcells.precalculated_dEs[idx:idx_new, :, var] = reshaped
 
                 idx = idx_new
         
@@ -97,15 +96,11 @@ class Simulation(Parameters):
             seeding_memory_bcells = self.memory_bcells.get_seeding_bcells(conc)
             self.gc_bcells[gc_idx].add_bcells(seeding_memory_bcells)
 
-        birth_bcells = self.gc_bcells[gc_idx].birth_mutate(conc, tcell)# no mutation yet XXX
+        daughter_bcells = self.gc_bcells[gc_idx].get_daughter_bcells(conc, tcell)
+        memory_bcells, plasma_bcells, nonexported_bcells = daughter_bcells.divide_bcells()
 
-        divided_bcells = birth_bcells.divide_birth()
-        exported_memory_bcells = divided_bcells[0]
-        exported_plasma_bcells = divided_bcells[1]
-        nonexported_bcells = divided_bcells[2]
-
-        self.memory_bcells.add_bcells(exported_memory_bcells)
-        self.plasma_bcells.add_bcells(exported_plasma_bcells)
+        self.memory_bcells.add_bcells(memory_bcells)
+        self.plasma_bcells.add_bcells(plasma_bcells)
         self.gc_bcells[gc_idx].add_bcells(nonexported_bcells)
 
         self.gc_bcells[gc_idx].kill()
@@ -115,15 +110,11 @@ class Simulation(Parameters):
         seeding_bcells = self.memory_bcells.get_seeding_bcells(conc)
         self.egc_bcells.add_bcells(seeding_bcells)
 
-        birth_bcells = self.egc_bcells.birth_mutate(conc, tcell, mutate=False)  # no need for mutation
+        daughter_bcells = self.egc_bcells.get_daughter_bcells(conc, tcell)
+        memory_bcells, plasma_bcells, nonexported_bcells = daughter_bcells.divide_bcells(mutate=False)
 
-        divided_bcells = birth_bcells.divide_birth()
-        exported_memory_bcells = divided_bcells[0]
-        exported_plasma_bcells = divided_bcells[1]
-        nonexported_bcells = divided_bcells[2]  # should be empty, leaving here in case we change later
-
-        self.memory_bcells.add_bcells(exported_memory_bcells)
-        self.plasma_bcells.add_bcells(exported_plasma_bcells)
+        self.memory_bcells.add_bcells(memory_bcells)
+        self.plasma_bcells.add_bcells(plasma_bcells)
         self.egc_bcells.add_bcells(nonexported_bcells)
 
         self.egc_bcells.kill()
