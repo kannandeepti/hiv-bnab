@@ -6,25 +6,30 @@ import utils
 from parameters import Parameters
 
 
+
 class Bcells(Parameters):
 
 
-    def __init__(self, max_num_bcells: int):
+    def __init__(self):
         super().__init__()
 
-        self.max_num_bcells = max_num_bcells
+        self.birth_rate = self.bcell_birth_rate
+        self.death_rate = None  # Specific to each type of bcell, must be set
 
-        # Specific to each type of bcell, must be set
-        self.birth_rate = None
-        self.death_rate = None
-
-        self.mutation_state_array = np.zeros((self.max_num_bcells, self.num_res), dtype=int)  # (num_bcell, num_res)
-        self.precalculated_dEs = np.zeros((self.max_num_bcells, self.num_res, self.n_var))    # (num_bcell, num_res, n_var)
-        self.lineage = np.zeros(self.max_num_bcells)                                          # (num_bcell), i think 0 indicates empty b cell
-        self.target_epitope = np.zeros(self.max_num_bcells)                                   # (num_bcell)
-        self.variant_affinities = np.zeros(self.max_num_bcells, self.n_var)                   # (num_bcell, num_var)
-        self.activated_time = np.zeros(self.max_num_bcells)                                   # (num_bcell)
-        self.num_mut = np.zeros(self.max_num_bcells)                                          # (num_bcell) ???
+        self.mutation_state_array = np.zeros(
+            (self.initial_bcell_number, self.n_res), dtype=int
+        )                                                                                           # (num_bcell, n_res)
+        self.precalculated_dEs = np.zeros(
+            (self.initial_bcell_number, self.n_res, self.n_var)
+        )                                                                                           # (num_bcell, n_res, n_var)
+        self.lineage = np.zeros(self.initial_bcell_number)                                          # (num_bcell), i think 0 indicates empty b cell
+        self.target_epitope = np.zeros(self.initial_bcell_number)                                   # (num_bcell)
+        self.variant_affinities = np.zeros((self.initial_bcell_number, self.n_var))                   # (num_bcell, num_var)
+        self.activated_time = np.zeros(self.initial_bcell_number)                                   # (num_bcell)
+        self.num_mut = np.zeros(self.initial_bcell_number)                                          # (num_bcell) ???
+        self.gc_or_egc_derived = np.zeros(
+            self.initial_bcell_number, dtype=int
+        ) + utils.DerivedCells.UNSET.value                                                          # (num_bcell), 0=gc,, 1=egc, unset=-1
         self.mutation_state1 = None#???
         self.mutation_state2 = None
         self.unique_clone_index = None
@@ -37,6 +42,7 @@ class Bcells(Parameters):
             'variant_affinities',
             'activated_time',
             'num_mut',
+            'gc_or_egc_derived'
             'mutation_state1',
             'mutation_state2',
             'unique_clone_index'
@@ -64,32 +70,21 @@ class Bcells(Parameters):
             setattr(self, array_name, new_array)
 
 
-    def get_sigma(self) -> list[np.ndarray]:
-        """Get sigma: covariance matrix per epitope."""
-        sigma = [[] for _ in self.n_ep]
-        for ep in range(self.n_ep):
-            if ep == 0:  # dom
-                sigma[ep] = np.array([[1, 0.4, 0.4], [0.4, 1, 0], [0.4, 0, 1]]) #XXX
-
-            else:
-                sigma[ep] = np.diag(np.ones(self.n_var))
-                for var in range(self.n_var - 1):  # non-WT var
-                    # each row corresponds to a different epitope
-                    rho = self.rho[ep - 1][var]
-                    sigma[ep][0][var + 1] = rho
-                    sigma[ep][var + 1][0] = rho
-        return sigma
+    def tag_gc_or_egc_derived(self, pop_value: int) -> None:
+        self.gc_or_egc_derived = np.zeros(
+            shape=self.lineage.shape, dtype=int
+        ) + pop_value
     
 
     def get_naive_bcells_arr(self) -> np.ndarray:
-        """Get number of naive B cells in each fitness class."""
+        """Get number of naive B cells in each fitness class.""" #XXX
         # Find out number of B cells in each class
         max_classes = np.around(
             np.array([
                 self.E1h - self.E0,
                 self.E1h - self.dE12 - self.E0, 
                 self.E1h - self.dE13 - self.E0
-            ]) / self.dE
+            ]) / self.class_size
         ) + 1
         r = np.zeros(self.n_ep)  # slopes of geometric distribution
 
@@ -130,7 +125,7 @@ class Bcells(Parameters):
         return dE
 
     
-    def get_activation(self, conc_array, variant_idx):
+    def get_activation(self, conc_array: np.ndarray, variant_idx: int):
         """From concentration and affinities, calculate activation signal and activation."""
         conc_term = conc_array / self.C0
         aff_term = 10 ** (self.variant_affinities[:, variant_idx] - self.E0)
@@ -148,25 +143,26 @@ class Bcells(Parameters):
 
     def get_birth_signal(
         self, 
-        activation_signal, 
-        activated, 
-        tcell, 
+        activation_signal: np.ndarray, 
+        activated: np.ndarray, 
+        tcell: float,
+        birth_rate: float
     ) -> np.ndarray:
         """From activation signal, calculate Tcell help and birth rate."""
         activated_fitness = activated * activation_signal
         avg_fitness = activated_fitness[activated_fitness > 0].mean()
         tcell_help = tcell / activated.sum() / avg_fitness * activated_fitness
-        birth_signal = self.birth_rate * (tcell_help / (1 + tcell_help))
+        birth_signal = birth_rate * (tcell_help / (1 + tcell_help))
         return birth_signal
 
 
     def get_seeding_idx(self, conc) -> np.ndarray:
         """Finds the logical indices of naive Bcells that will enter GC.
         
-        shape should np.ndarray of size self.max_num_bcells containing 0s or 1s
+        shape should np.ndarray of size num_bcells containing 0s or 1s
         
         """
-        conc_array = np.zeros(shape=self.max_num_bcells)
+        conc_array = np.zeros(shape=self.lineage.shape)
         for ep in range(self.n_ep):
             matching_epitope = self.target_epitope == (ep + 1)
             conc_array += conc[ep] * matching_epitope * (self.activated_time == 0)
@@ -175,8 +171,9 @@ class Bcells(Parameters):
         activation_signal, activated = self.get_activation(conc_array, 0)
     
         if activated.sum(): # at least one B cell is intrinsically activated
-            lambda_ = self.get_tcell_help(
-                activation_signal, activated, self.nmax, self.lambda_max)
+            lambda_ = self.get_birth_signal(
+                activation_signal, activated, self.nmax, self.gc_entry_birth_rate
+            )
             selected = np.random.uniform(size=activated.shape) < lambda_ * self.dt
             incoming_naive = activated & selected
             
@@ -200,7 +197,7 @@ class Bcells(Parameters):
 
     def get_birth_idx(self, conc, tcell) -> np.ndarray:
         """Get indices of Bcells that will undergo birth."""
-        conc_array = np.zeros(shape=self.max_num_bcells)
+        conc_array = np.zeros(shape=self.lineage.shape)
         for ep in range(self.n_ep):
             conc_array += conc[ep] * (self.target_epitope == (ep + 1))
 
@@ -208,7 +205,9 @@ class Bcells(Parameters):
         activation_signal, activated = self.get_activation(conc_array, 0)
 
         if activated.sum(): # at least one B cell is intrinsically activated
-            beta = self.get_birth_signal(activation_signal, activated, tcell)
+            beta = self.get_birth_signal(
+                activation_signal, activated, tcell, self.birth_rate
+            )
             beta[np.isnan(beta)] = 0
             selected = np.random.uniform(size=activated.shape) < beta * self.dt
             birth_idx = activated & selected
@@ -217,6 +216,9 @@ class Bcells(Parameters):
             birth_idx = np.array([])
 
         return birth_idx
+    
+    def get_daughter_bcells_no_selection(self) -> Self:
+        return self.get_bcells_from_idx(np.arange(self.lineage.size))
     
 
     def get_daughter_bcells(self, conc, tcell) -> Self:
@@ -256,7 +258,7 @@ class Bcells(Parameters):
         return mutated_bcells
 
 
-    def divide_bcells(self, mutate: bool=True) -> tuple[Self]:
+    def divide_bcells(self, pop_value: int, mutate: bool=True) -> tuple[Self]:
         """Divide bcells into memory, plasma, nonexported_bcells."""
         # Exported indices
         birth_bcells_idx = np.arange(len(self.lineage))
@@ -282,6 +284,11 @@ class Bcells(Parameters):
         if mutate:
             mutated_bcells = self.get_mutated_bcells_from_idx(affinity_change_idx)
             nonmutated_bcells.add_bcells(mutated_bcells)
+
+        # Tag bcells as GC or EGC-derived
+        memory_bcells.tag_gc_or_egc_derived(pop_value)
+        plasma_bcells.tag_gc_or_egc_derived(pop_value)
+        nonmutated_bcells.tag_gc_or_egc_derived(pop_value)
 
         return memory_bcells, plasma_bcells, nonmutated_bcells
     
