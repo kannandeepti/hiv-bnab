@@ -6,19 +6,12 @@ import numpy as np
 import scipy
 
 
-class ConcentrationNames(Enum):
-    SOLUBLE = 'soluble'
-    IC_FDC = 'IC-FDC'
-    IGM_NAT = 'IgM-natural'
-    IGM_IMM = 'IgM-immune'
-    IGG = 'IGG'
-
 
 class DerivedCells(Enum):
     """Values used to tag bcells as where they are derived from."""
-    GC = 0
-    EGC = 1
-    UNSET = -1
+    UNSET = 0
+    GC = 1
+    EGC = 2
 
 
 def write_pickle(data: Any, file: str) -> None:
@@ -58,8 +51,26 @@ def get_death_rate_from_half_life(half_life: float, dt: float) -> float:
     return 1 / dt * (1 - (2 ** (-dt / half_life)))
 
 
-def dict_sum(dictionary: dict) -> float:
-    return sum([array.sum() for _, array in dictionary.items()])
+def any(x):
+    """
+    Equivalent of any function in Matlab.
+    """
+    if (isinstance(x, int) or isinstance(x, float)) and (x != 0):
+        return 1
+    elif (isinstance(x, int) or isinstance(x, float)) and (x == 0):
+        return 0
+    if len(x.shape) > 1:
+        first_ind = np.where(np.array(x.shape) > 1)[0][0]
+        y = np.zeros(shape = x.shape[first_ind + 1:])
+        inds = np.nonzero(x)[first_ind + 1:]
+        if len(inds) > 0:
+            y[np.nonzero(x)[first_ind + 1:]] = 1
+        return y
+    else:
+        if len(np.nonzero(x)[0]) > 0:
+            return 1
+        else:
+            return 0
 
 
 def reshape_(x: np.adarray, row: bool=False) -> np.ndarray:

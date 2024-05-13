@@ -3,6 +3,7 @@ import numpy as np
 import utils
 from parameters import Parameters
 from bcells import Bcells
+from concentrations import Concentrations
 
 
 
@@ -12,6 +13,7 @@ class Simulation(Parameters):
     def __init__(self):
         super().__init__()
         self.create_file_path()
+        self.concentrations = Concentrations()
 
     
     def create_file_path(self) -> None:
@@ -76,14 +78,16 @@ class Simulation(Parameters):
     
 
     def run_gc(self, gc_idx: int) -> None:
-        seeding_bcells = self.naive_bcells[gc_idx].get_seeding_bcells(conc)
+        seeding_bcells = self.naive_bcells[gc_idx].get_seeding_bcells(self.conc)
+        for _ in range(self.naive_bcells_num_divide):
+            seeding_bcells.add_bcells(seeding_bcells)
         self.gc_bcells[gc_idx].add_bcells(seeding_bcells)
 
         if self.memory_to_gc_fraction > 0.:
-            seeding_memory_bcells = self.memory_bcells.get_seeding_bcells(conc)
+            seeding_memory_bcells = self.memory_bcells.get_seeding_bcells(self.conc)
             self.gc_bcells[gc_idx].add_bcells(seeding_memory_bcells)
 
-        daughter_bcells = self.gc_bcells[gc_idx].get_daughter_bcells(conc, self.tcell)
+        daughter_bcells = self.gc_bcells[gc_idx].get_daughter_bcells(self.conc, self.tcell)
         memory_bcells, plasma_bcells, nonexported_bcells = daughter_bcells.divide_bcells(
             utils.DerivedCells.GC.value
         )
@@ -98,7 +102,7 @@ class Simulation(Parameters):
         # seeding_bcells = self.memory_bcells.get_seeding_bcells(conc)
         # self.egc_bcells.add_bcells(seeding_bcells)
 
-        daughter_bcells = self.egc_bcells.get_daughter_bcells(conc, self.tcell)
+        daughter_bcells = self.egc_bcells.get_daughter_bcells(self.conc, self.tcell)
         memory_bcells, plasma_bcells, nonexported_bcells = daughter_bcells.divide_bcells(
             utils.DerivedCells.EGC.value, mutate=False
         )
@@ -109,7 +113,10 @@ class Simulation(Parameters):
 
 
     def run_timestep(self, timestep_idx: int) -> None:
-        self.tcell = self.num_tcells_arr[timestep_idx]
+        self.tcell: float = self.num_tcells_arr[timestep_idx]
+        masked_ag_conc = self.concentrations.get_masked_ag_conc()
+        self.conc = np.array([self.ag_eff, 1]) @ masked_ag_conc
+
         for gc_idx in range(self.num_gc):
             self.run_gc(gc_idx)
 
@@ -117,14 +124,18 @@ class Simulation(Parameters):
             self.run_egc()
 
         # Kill bcells
-        self.set_death_rates()  # set_birth_rates not necessary here if all bcells have the same birth rate. also if gc/egc derived cells have different death rates that needs to be adjusted here
+        # set_birth_rates not necessary here if all bcells have the same birth rate. 
+        # also if gc/egc derived cells have different death rates that needs to be adjusted here
+        self.set_death_rates()
         for gc_idx in range(self.num_gc):
             self.gc_bcells[gc_idx].kill()
         self.egc_bcells.kill()
         self.plasma_bcells.kill()
         self.memory_bcells.kill()
 
-        self.update_concentrations(conc)
+        plasma_bcells_gc = self.plasma_bcells.filter_by_tag(utils.DerivedCells.GC) #XXX
+        plasma_bcells_egc = self.plasma_bcells.filter_by_tag(utils.DerivedCells.EGC)
+        self.concentrations.update_concentrations(self.current_time, plasma_bcells_gc, plasma_bcells_egc)
 
 
     def read_checkpoint(self) -> None:
@@ -146,6 +157,8 @@ class Simulation(Parameters):
         for timestep_idx in range(self.num_timesteps):
             self.current_time = timestep_idx * self.dt
             self.run_timestep(timestep_idx)
+
+        utils.write_pickle(self, self.file_path)
 
 
 

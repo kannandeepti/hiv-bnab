@@ -13,8 +13,9 @@ class Parameters:
         self.num_gc = 200
         self.initial_bcell_number = 0
         self.n_res = 80
-        self.n_var = 2
-        self.n_ep = 2
+        self.n_var = 3
+        self.n_ep = 3
+        self.n_ag = 1
         self.mutation_pdf = [3.1, 1.2, 3.08]
         self.mutation_death_prob = 0.3
         self.mutation_silent_prob = 0.5  # think Leerang accidently flipped these 2 values
@@ -27,12 +28,14 @@ class Parameters:
         self.plasma_half_life = 4
         self.memory_half_life = np.inf
         self.memory_to_gc_fraction = 0.
+        self.naive_bcells_num_divide = 2
 
         self.egc_stop_time = 6.
 
         self.E0 = 6
         self.E1h = 7
         self.dE12 = 0.4
+        self.dE13 = 0.4
         self.class_size = 0.2
         self.num_naive_precursors = 2000
         self.num_class_bins = 11
@@ -45,15 +48,40 @@ class Parameters:
         self.w1 = 0
         self.w2 = 0.5
 
+        self.ag_eff = 0.01
+        self.masking = 0
+        self.q12 = 0.
+        self.q13 = 0.
+        self.q23 = 0.
+        self.initial_ka = 1e-3
+        self.ag0 = 10.
+        self.igm0 = 0.01
+        self.delivery_type = 'bolus'
+        self.deposit_rate = 24.
+        self.d_igm = np.log(2) / 28
+        self.d_igg = np.log(2) / 28
+        self.d_ag = 3.
+        self.d_IC = 0.15
+        self.k = 0
+        self.T = 0
+        self.conc_threshold = 1e-10
+        self.delay = 2.
+        self.nm_to_m_conversion = -9
+        self.max_ka = 1e11
+        self.production = 1
+
         self.nmax = 10.
         self.tmax = 360
         self.num_tmax = 1200
         self.d_Tfh = 0.01
 
+        self.r_igm = self.igm0 * self.production / self.num_gc
+        self.r_igg = self.igm0 * self.production / self.num_gc
         self.fitness_array = np.linspace(self.E0, self.E0 + 2, self.num_class_bins)  # 6 to 8 with interval of 0.2  # Bin at which the value of frequency is 1 for dominant/subdominant cells
         self.sigma = self.get_sigma()
         self.num_timesteps = int(self.vax_timing[self.vax_idx] / self.dt)
         self.num_tcells_arr = self.get_num_tcells_arr()
+        self.set_dosing_parameters()
 
 
     def get_num_tcells_arr(self) -> np.ndarray:  # todo make part of parameters
@@ -81,7 +109,17 @@ class Parameters:
                 sigma[ep] = np.diag(np.ones(self.n_var))
                 for var in range(self.n_var - 1):  # non-WT var
                     # each row corresponds to a different epitope
-                    rho = self.rho[ep - 1][var]
+                    rho = self.rho[ep - 1][var] #XXX
                     sigma[ep][0][var + 1] = rho
                     sigma[ep][var + 1][0] = rho
         return sigma
+
+
+    def set_dosing_parameters(self) -> None: #XXX
+        if self.delivery_type == 'bolus':
+            self.F0 = 0
+            self.dose_time = 0
+            self.dose = self.ag0
+        else:
+            raise ValueError('Slow delivery not used.')
+            

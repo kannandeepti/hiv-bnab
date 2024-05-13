@@ -1,6 +1,5 @@
 import copy
 from typing import Self
-
 import numpy as np
 import utils
 from parameters import Parameters
@@ -99,7 +98,7 @@ class Bcells(Parameters):
         naive_bcells_arr = np.zeros(shape=(self.n_ep, self.num_class_bins))
         p = [1-self.p2-self.p3, self.p2, self.p3]
         for ep in range(self.n_ep):
-            if max_classes[i] > 1:
+            if max_classes[ep] > 1:
                 naive_bcells_arr[ep, :self.num_class_bins] = p[ep] * r[ep] ** (
                     max_classes[ep] - (np.arange(self.num_class_bins) + 1)
                 )
@@ -113,19 +112,18 @@ class Bcells(Parameters):
         self, 
         idx_new: int, 
         idx: int, 
-        sigma: list[np.ndarray], 
         ep: int
     ) -> np.ndarray:
         """Get dE: affinity changes."""
         mu = np.zeros(self.n_var)
-        sigma = self.mutation_pdf[1] ** 2 * sigma[ep]
+        sigma = self.mutation_pdf[1] ** 2 * self.sigma[ep]
         num = (idx_new - idx) * self.n_res
         X = self.mutation_pdf[0] + np.random.multivariate_normal(mu, sigma, num)
         dE = np.log10(np.exp(1)) * (np.exp(X) - self.mutation_pdf[2])
         return dE
 
     
-    def get_activation(self, conc_array: np.ndarray, variant_idx: int):
+    def get_activation(self, conc_array: np.ndarray, variant_idx: int) -> tuple[np.ndarray, np.ndarray]:
         """From concentration and affinities, calculate activation signal and activation."""
         conc_term = conc_array / self.C0
         aff_term = 10 ** (self.variant_affinities[:, variant_idx] - self.E0)
@@ -156,7 +154,7 @@ class Bcells(Parameters):
         return birth_signal
 
 
-    def get_seeding_idx(self, conc) -> np.ndarray:
+    def get_seeding_idx(self, conc: np.ndarray) -> np.ndarray:
         """Finds the logical indices of naive Bcells that will enter GC.
         
         shape should np.ndarray of size num_bcells containing 0s or 1s
@@ -189,13 +187,13 @@ class Bcells(Parameters):
         return new_bcells
     
 
-    def get_seeding_bcells(self, conc) -> Self:
+    def get_seeding_bcells(self, conc: np.ndarray) -> Self:
         seeding_idx = self.get_seeding_idx(conc)
         seeding_bcells = self.get_bcells_from_idx(seeding_idx)
         return seeding_bcells
         
 
-    def get_birth_idx(self, conc, tcell) -> np.ndarray:
+    def get_birth_idx(self, conc: np.ndarray, tcell: float) -> np.ndarray:
         """Get indices of Bcells that will undergo birth."""
         conc_array = np.zeros(shape=self.lineage.shape)
         for ep in range(self.n_ep):
@@ -217,11 +215,8 @@ class Bcells(Parameters):
 
         return birth_idx
     
-    def get_daughter_bcells_no_selection(self) -> Self:
-        return self.get_bcells_from_idx(np.arange(self.lineage.size))
-    
 
-    def get_daughter_bcells(self, conc, tcell) -> Self:
+    def get_daughter_bcells(self, conc: np.ndarray, tcell: float) -> Self:
         birth_idx = self.get_birth_idx(conc, tcell)
         daughter_bcells = self.get_bcells_from_idx(birth_idx)
         return daughter_bcells
