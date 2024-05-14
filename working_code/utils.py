@@ -35,6 +35,7 @@ def read_json(file: str) -> dict:
 
 
 def get_sample(arr1: np.ndarray, p: float) -> np.ndarray:
+    """Get a sample from arr1 with fraction/prob p."""
     output_idx = np.random.choice(
         arr1, 
         size=np.random.binomial(len(arr1), p=p), 
@@ -44,10 +45,12 @@ def get_sample(arr1: np.ndarray, p: float) -> np.ndarray:
 
 
 def get_other_idx(arr1: np.ndarray, arr2: np.ndarray) -> np.ndarray:
+    """Get values in arr1 that are not in arr2."""
     return np.array([i for i in arr1 if i not in arr2])
 
 
 def get_death_rate_from_half_life(half_life: float, dt: float) -> float:
+    """Given a bcell half-life, calculate the corresponding death rate."""
     return 1 / dt * (1 - (2 ** (-dt / half_life)))
 
 
@@ -71,6 +74,11 @@ def any(x):
             return 1
         else:
             return 0
+        
+
+##########################################################################
+################ NOT USED RIGHT NOW ######################################
+##########################################################################
 
 
 def reshape_(x: np.ndarray, row: bool=False) -> np.ndarray:

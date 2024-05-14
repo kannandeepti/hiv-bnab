@@ -5,7 +5,7 @@ import numpy as np
 @dataclass
 class Parameters:
     """
-    Base class that contains simulation parameters.
+    Base dataclass that contains simulation parameters.
 
     Inherited classes will have access to all these parameters.
     """
