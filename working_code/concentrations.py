@@ -165,7 +165,7 @@ class Concentrations(Parameters):
 
         Returns:
             deposit_rates: The FDC-deposit rates. np.ndarray
-            (shape=(num_ig_types, n_ep, n_ag)).
+                (shape=(num_ig_types, n_ep, n_ag)).
         """
         if L > 0 and R.sum() > 0:
             IC_soluble = self.get_IC(
@@ -189,7 +189,7 @@ class Concentrations(Parameters):
     def get_rescaled_rates(
         self, 
         deposit_rates: np.ndarray, 
-        current_time: np.ndarray
+        current_time: float
     ) -> tuple[np.ndarray]:
         """Get rescaled deposit and Ab decay rates.
 
@@ -197,7 +197,7 @@ class Concentrations(Parameters):
 
         Args:
             deposit_rates: The FDC-deposit rates. np.ndarray
-            (shape=(num_ig_types, n_ep, n_ag)).
+                (shape=(num_ig_types, n_ep, n_ag)).
             current_time: Current simulation time from Simulation class.
 
         Returns:
@@ -210,7 +210,7 @@ class Concentrations(Parameters):
         rescale_idx = self.ab_conc < -ab_decay * self.dt # (3, n_ep)
         rescale_factor = self.ab_conc / (-ab_decay * self.dt) # (3, n_ep)
         if rescale_idx.flatten().sum():
-            print(f'Reaction rates rescaled. Time={current_time:.2f}')
+            print(f'Ab reaction rates rescaled. Time={current_time:.2f}')
             deposit_rates[rescale_idx] *= rescale_factor[rescale_idx]
             ab_decay[rescale_idx] *= rescale_factor[rescale_idx]
             if np.isnan(ab_decay.flatten()).sum():
@@ -220,21 +220,21 @@ class Concentrations(Parameters):
 
     def get_rescaled_ag_decay(self, 
         deposit_rates: np.ndarray, 
-        ab_decay: np.ndarray
+        ab_decay: np.ndarray,
+        current_time: float
     ) -> tuple[np.ndarray]:
         """Get rescaled rates after checking Ag concentrations.
-        
-        Needed if concentrations would go to 0. XXX i think need to have rescale_idx
 
         Args:
             deposit_rates: FDC-deposit rates. np.ndarray
-            (shape=(num_ig_types, n_ep, n_ag)).
+                (shape=(num_ig_types, n_ep, n_ag)).
             ab_decay: Ab decay rates. np.ndarray (shape=(num_ig_types, n_ep))
+            current_time: Current simulation time from Simulation class.
 
         Returns:
             deposit_rates: Rescaled FDC-deposit rates. np.ndarray
-            (shape=(num_ig_types, n_ep, n_ag)).
-            ag_decay_rescaled: Rescaled Ag decay rates.
+                (shape=(num_ig_types, n_ep, n_ag)).
+            ag_decay: Rescaled Ag decay rates.
                 np.ndarray (shape=(n_ag))
             ab_decay: Rescaled Ab decay rates.
                 np.ndarray (shape=(num_ig_types, n_ep))
@@ -245,18 +245,26 @@ class Concentrations(Parameters):
             deposit_rates.sum(axis=(0,1))  # (n_ag)
         )
 
+        rescale_idx = (
+            self.ag_conc[ConcentrationIdx.SOLUBLE.value] < -ag_decay * self.dt
+        )
+
         rescale_factor = (
             self.ag_conc[ConcentrationIdx.SOLUBLE.value] / 
             (-ag_decay * self.dt) # (n_ag)
         )
 
-        ag_decay_rescaled = ag_decay * rescale_factor  # (n_ag)
-        deposit_rates_rescaled = deposit_rates * rescale_factor  # (3, n_ep, n_ag)
-        ab_decay_rescaled = (
-            ab_decay + deposit_rates.sum(axis=2) - 
-            deposit_rates_rescaled.sum(axis=2)  # (3, n_ep)
-        )
-        return deposit_rates_rescaled, ag_decay_rescaled, ab_decay_rescaled
+        if rescale_idx.flatten().sum():
+            print(f'Ag reaction rates rescaled. Time={current_time:.2f}')
+            ag_decay[rescale_idx] *= rescale_factor  # (n_ag)
+            deposit_rates_rescaled = copy.deepcopy(deposit_rates)
+            deposit_rates_rescaled[:, :, rescale_idx] *= rescale_factor  # (3, n_ep, n_ag)
+            ab_decay += (
+                deposit_rates.sum(axis=2) - 
+                deposit_rates_rescaled.sum(axis=2)  # (3, n_ep)
+            )
+            deposit_rates = deposit_rates_rescaled
+        return deposit_rates, ag_decay, ab_decay
     
 
     def ag_ab_update(
@@ -270,7 +278,7 @@ class Concentrations(Parameters):
         
         Args:
             deposit_rates: FDC-deposit rates. np.ndarray
-            (shape=(num_ig_types, n_ep, n_ag)).
+                (shape=(num_ig_types, n_ep, n_ag)).
             ag_decay_rescaled: Ag decay rates. np.ndarray (shape=(n_ag))
             ab_decay: Ab decay rates. np.ndarray (shape=(num_ig_types, n_ep))
             current_time: Current simulation time from Simulation class.
