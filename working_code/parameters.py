@@ -1,8 +1,8 @@
-import dataclasses
+from dataclasses import dataclass
 import numpy as np
 
 
-@dataclasses.dataclass
+@dataclass
 class Parameters:
     """
     Base class that contains simulation parameters.
