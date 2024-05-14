@@ -8,10 +8,11 @@ from bcells import Bcells
 
 
 class ConcentrationIdx(Enum):
-    # masked_ag_conc
+    """Class for recording which indices in arrays correspond to which Ag/Ab types."""
+    # For masked_ag_conc
     SOLUBLE = 0
     IC_FDC = 1
-    # ab_conc and ab_ka
+    # For ab_conc and ab_ka
     IGM_NAT = 0
     IGM_IMM = 1
     IGG = 2
@@ -20,6 +21,25 @@ class ConcentrationIdx(Enum):
 class Concentrations(Parameters):
 
     def __init__(self):
+        """Initialize concentration arrays.
+        
+        Attributes:
+            ig_type - Different Ig types
+            num_ig_types - Number of different Ig types.
+            ig_types_arr - Not sure. Involved in matmul with ig_new and ka_new
+                (shape=(num_ig_types, n_ep))
+            ag_conc - Concentrations of Ag (shape=(n_ep + 1, n_ag)). 
+                ag_conc[0] corresponds to soluble Ag.
+            ab_conc - Concentrations of Ab (shape=(num_ig_types, n_ep))
+            ab_decay_rates - Decay rates for Ig types. Multiplied with ab_conc.
+                np.ndarray (shape=(num_ig_types, np.newaxis))
+            ab_ka_condense_fn - If there are multiple variant antigens being
+                given at once in the GC, this function determines which Ka to use.
+                Default is to use the mean, but I think Leerang/Melbourne use the
+                WT at index 0.
+            ab_ka - Kas for antibodies to multiple variants.
+                (shape=(n_var, num_ig_types, n_ep))
+        """
         super().__init__()
 
         self.ig_types = ['IgM', 'IgG-GCPC', 'IgG-EGCPC']
@@ -42,6 +62,7 @@ class Concentrations(Parameters):
 
     
     def set_overlap_matrix(self) -> None:
+        """Defines the epitope overlap matrix."""
         self.overlap_matrix = np.array([
             [1, self.q12, self.q13],
             [self.q12, 1, self.q23], 
@@ -56,10 +77,18 @@ class Concentrations(Parameters):
         avg_ka: np.ndarray | float, 
         fail_if_nan: bool=False
     ) -> np.ndarray:
-        """Equilibrium Receptor-Ligand Binding L+R->IC.
+        """Calculate the Ag-Ab IC concentration.
+
+        Args:
+            L: Ab or 'ligand', either a np.ndarray (shape=(n_ep)) or
+                float.
+            R: Ag or 'receptor', nd.ndarray (shape=(n_ag))
+            avg_ka: Average Ka, np.ndarray (shape=(n_ep)) or float.
+            fail_if_nan: If IC conc is not real, then raise ValueError.
+                Otherwise, set nan values to 0.
 
         Returns:
-            IC: (n_ep, n_ag) or (n_ag) np.ndarray
+            IC: IC concentrations (shape=(n_ep, n_ag) or (n_ag))
         """
         term1 = R + L + 1/avg_ka
         term2 = np.emath.sqrt(np.square(term1) - 4 * R * L)
@@ -74,6 +103,14 @@ class Concentrations(Parameters):
 
 
     def get_masked_ag_conc(self) -> np.ndarray:
+        """Get Ag concentration after applying epitope masking.
+        
+        Returns:
+            masked_ag_conc: Ag concentration after epitope masking.
+                np.ndarray (shape=(2, n_ep, n_ag)). masked_ag_conc[0]
+                corresponds to soluble Ag and masked_ag_conc[1] corresponds
+                to IC-bound Ag.
+        """
         masked_ag_conc = np.zeros((2, self.n_ep, self.n_ag))
 
         if self.ag_conc.sum() == 0:
@@ -119,7 +156,17 @@ class Concentrations(Parameters):
         R: np.ndarray, 
         avg_ka: float
     ) -> np.ndarray:
-        """shape (3, n_ep, n_ag)"""
+        """Get the FDC-deposit rates.
+        
+        Args:
+            L: Ab or 'ligand', float in this case.
+            R: Ag or 'receptor', nd.ndarray (shape=(n_ag))
+            avg_ka: Average Ka, float in this case.
+
+        Returns:
+            deposit_rates: The FDC-deposit rates. np.ndarray
+            (shape=(num_ig_types, n_ep, n_ag)).
+        """
         if L > 0 and R.sum() > 0:
             IC_soluble = self.get_IC(
                 L, R, avg_ka, fail_if_nan=True
@@ -144,6 +191,21 @@ class Concentrations(Parameters):
         deposit_rates: np.ndarray, 
         current_time: np.ndarray
     ) -> tuple[np.ndarray]:
+        """Get rescaled deposit and Ab decay rates.
+
+        Needed if concentrations would go to 0.
+
+        Args:
+            deposit_rates: The FDC-deposit rates. np.ndarray
+            (shape=(num_ig_types, n_ep, n_ag)).
+            current_time: Current simulation time from Simulation class.
+
+        Returns:
+            deposit_rates: Rescaled FDC-deposit rates.
+                np.ndarray (shape=(num_ig_types, n_ep, n_ag)).
+            ab_decay: Rescaled Ab decay rates.
+                np.ndarray (shape=(num_ig_types, n_ep))
+        """
         ab_decay = -deposit_rates.sum(axis=2) - self.ab_decay_rates * self.ab_conc # (3, n_ep)
         rescale_idx = self.ab_conc < -ab_decay * self.dt # (3, n_ep)
         rescale_factor = self.ab_conc / (-ab_decay * self.dt) # (3, n_ep)
@@ -159,7 +221,25 @@ class Concentrations(Parameters):
     def get_rescaled_ag_decay(self, 
         deposit_rates: np.ndarray, 
         ab_decay: np.ndarray
-    ) -> tuple[np.ndarray]: # XXX fix, need rescale idx
+    ) -> tuple[np.ndarray]:
+        """Get rescaled rates after checking Ag concentrations.
+        
+        Needed if concentrations would go to 0. XXX i think need to have rescale_idx
+
+        Args:
+            deposit_rates: FDC-deposit rates. np.ndarray
+            (shape=(num_ig_types, n_ep, n_ag)).
+            ab_decay: Ab decay rates. np.ndarray (shape=(num_ig_types, n_ep))
+
+        Returns:
+            deposit_rates: Rescaled FDC-deposit rates. np.ndarray
+            (shape=(num_ig_types, n_ep, n_ag)).
+            ag_decay_rescaled: Rescaled Ag decay rates.
+                np.ndarray (shape=(n_ag))
+            ab_decay: Rescaled Ab decay rates.
+                np.ndarray (shape=(num_ig_types, n_ep))
+
+        """
         ag_decay = (
             -self.d_ag * self.ag_conc[ConcentrationIdx.SOLUBLE.value] -
             deposit_rates.sum(axis=(0,1))  # (n_ag)
@@ -186,6 +266,15 @@ class Concentrations(Parameters):
         ab_decay: np.ndarray, 
         current_time: float
     ) -> None:
+        """Update the ag_conc and ab_conc arrays based on decay and deposition.
+        
+        Args:
+            deposit_rates: FDC-deposit rates. np.ndarray
+            (shape=(num_ig_types, n_ep, n_ag)).
+            ag_decay_rescaled: Ag decay rates. np.ndarray (shape=(n_ag))
+            ab_decay: Ab decay rates. np.ndarray (shape=(num_ig_types, n_ep))
+            current_time: Current simulation time from Simulation class.
+        """
         self.ag_conc[ConcentrationIdx.SOLUBLE] += (
             ag_decay * self.dt + self.F0 * 
             np.exp(self.k * current_time) * (current_time < self.T * self.dt)
@@ -210,6 +299,19 @@ class Concentrations(Parameters):
         plasma_bcells_gc: Bcells, 
         plasma_bcells_egc: Bcells
     ) -> tuple[np.ndarray]:
+        """Get the ig_new and ka_new arrays, not sure what they do.
+
+        Args:
+            current_time: Current simulation time from Simulation class.
+            plasma_bcells_gc: Plasma bcells that were tagged as being 
+                GC-derived.
+            plasma_bcells_egc: Plasma bcells that were tagged as being 
+                EGC-derived.
+        
+        Returns:
+            ig_new: np.ndarray (shape=(num_ig_types, n_ep))
+            ka_new: np.ndarray (shape=(n_var, num_ig_types, n_ep))
+        """
         threshold = current_time - self.delay
         ig_new = np.zeros((self.num_ig_types, self.n_ep))
         ka_new = np.array([ig_new for _ in range(self.n_var)]) # (n_var, n_ig_types, n_ep)
@@ -253,6 +355,15 @@ class Concentrations(Parameters):
         ig_new: np.ndarray, 
         ka_new: np.ndarray
     ) -> None:
+        """Update the ab_ka array.
+        
+        Args:
+            ab_conc_copy: ab_conc before any rescaling.
+                (shape=(num_ig_types, n_ep))
+            ab_decay: Ab decay rates. np.ndarray (shape=(num_ig_types, n_ep))
+            ig_new: np.ndarray (shape=(num_ig_types, n_ep))
+            ka_new: np.ndarray (shape=(n_var, num_ig_types, n_ep))
+        """
         for var in range(self.n_var):
             current_sum = (ab_conc_copy + self.dt * ab_decay) * self.ab_ka[var]
             new_ka = (
@@ -277,6 +388,15 @@ class Concentrations(Parameters):
         plasma_bcells_gc: Bcells, 
         plasma_bcells_egc: Bcells
     ) -> None:
+        """Update ag_conc, ab_conc, and ab_ka arrays.
+
+        Args:
+            current_time: Current simulation time from Simulation class.
+            plasma_bcells_gc: Plasma bcells that were tagged as being 
+                GC-derived.
+            plasma_bcells_egc: Plasma bcells that were tagged as being 
+                EGC-derived.
+        """
 
         # Add concentration from dose
         if np.isclose(current_time, self.dose_time):
