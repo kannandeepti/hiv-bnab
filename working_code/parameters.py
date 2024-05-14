@@ -16,7 +16,7 @@ class Parameters:
     dt = 0.01
 
     num_gc = 200
-    initial_bcell_number = 0
+    initial_bcell_number = 1
     n_res = 80
     n_var = 3
     n_ep = 3

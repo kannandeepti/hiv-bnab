@@ -20,15 +20,8 @@ class Bcells(Parameters):
         )                                                                                           # (num_bcell, n_res)
         self.precalculated_dEs = np.zeros(
             (self.initial_bcell_number, self.n_res, self.n_var)
-        )                                                                                           # (num_bcell, n_res, n_var)
-        self.lineage = np.zeros(self.initial_bcell_number)                                          # (num_bcell), i think 0 indicates empty b cell
-        self.target_epitope = np.zeros(self.initial_bcell_number)                                   # (num_bcell)
-        self.variant_affinities = np.zeros((self.initial_bcell_number, self.n_var))                   # (num_bcell, num_var)
-        self.activated_time = np.zeros(self.initial_bcell_number)                                   # (num_bcell)
-        self.num_mut = np.zeros(self.initial_bcell_number)                                          # (num_bcell) ???
-        self.gc_or_egc_derived = np.zeros(
-            self.initial_bcell_number, dtype=int
-        ) + utils.DerivedCells.UNSET.value                                                          # (num_bcell), 1=gc,, 2=egc, unset=0
+        )
+        self.reset_bcell_fields()                                                                                           # (num_bcell, n_res, n_var)
         self.mutation_state1 = None#???
         self.mutation_state2 = None
         self.unique_clone_index = None
@@ -47,6 +40,15 @@ class Bcells(Parameters):
             'unique_clone_index'
         ]
     
+    def reset_bcell_fields(self) -> None:
+        self.lineage = np.zeros(self.initial_bcell_number)                                          # (num_bcell), i think 0 indicates empty b cell
+        self.target_epitope = np.zeros(self.initial_bcell_number)                                   # (num_bcell)
+        self.variant_affinities = np.zeros((self.initial_bcell_number, self.n_var))                   # (num_bcell, num_var)
+        self.activated_time = np.zeros(self.initial_bcell_number)                                   # (num_bcell)
+        self.num_mut = np.zeros(self.initial_bcell_number)                                          # (num_bcell) ???
+        self.gc_or_egc_derived = np.zeros(
+            self.initial_bcell_number, dtype=int
+        ) + utils.DerivedCells.UNSET.value                                                          # (num_bcell), 1=gc,, 2=egc, unset=0
 
     def replace_all_arrays(self, idx: np.ndarray) -> None:
         for array_name in self.array_names:
@@ -257,7 +259,7 @@ class Bcells(Parameters):
         return mutated_bcells
 
 
-    def divide_bcells(self, tag_value: int, mutate: bool=True) -> tuple[Self]:
+    def differentiate_bcells(self, tag_value: int, mutate: bool=True) -> tuple[Self]:
         """Divide bcells into memory, plasma, nonexported_bcells."""
         # Exported indices
         birth_bcells_idx = np.arange(len(self.lineage))
@@ -303,6 +305,9 @@ class Bcells(Parameters):
     def kill(self) -> None:
         death_idx = self.get_death_idx(self.death_rate)
         self.filter_all_arrays(death_idx)
+        if self.lineage.size == 0:
+            self.reset_bcell_fields()
+
 
 
 

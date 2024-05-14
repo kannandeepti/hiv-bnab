@@ -105,7 +105,7 @@ class Simulation(Parameters):
             self.gc_bcells[gc_idx].add_bcells(seeding_memory_bcells)
 
         daughter_bcells = self.gc_bcells[gc_idx].get_daughter_bcells(self.conc, self.tcell)
-        memory_bcells, plasma_bcells, nonexported_bcells = daughter_bcells.divide_bcells(
+        memory_bcells, plasma_bcells, nonexported_bcells = daughter_bcells.differentiate_bcells(
             utils.DerivedCells.GC.value
         )
 
@@ -120,7 +120,7 @@ class Simulation(Parameters):
         # self.egc_bcells.add_bcells(seeding_bcells)
 
         daughter_bcells = self.egc_bcells.get_daughter_bcells(self.conc, self.tcell)
-        memory_bcells, plasma_bcells, nonexported_bcells = daughter_bcells.divide_bcells(
+        memory_bcells, plasma_bcells, nonexported_bcells = daughter_bcells.differentiate_bcells(
             utils.DerivedCells.EGC.value, mutate=False
         )
 

@@ -212,7 +212,7 @@ class Concentrations(Parameters):
     ) -> tuple[np.ndarray]:
         threshold = current_time - self.delay
         ig_new = np.zeros((self.num_ig_types, self.n_ep))
-        ka_new = np.array([ig_new for _ in range(self.n_var)]) # (n_var, 3, n_ep)
+        ka_new = np.array([ig_new for _ in range(self.n_var)]) # (n_var, n_ig_types, n_ep)
         affinity = np.empty(shape=(self.n_var, self.num_ig_types), dtype=object) # (n_var, n_ig_types)
         target = np.empty(self.num_ig_types, dtype=object)
 
