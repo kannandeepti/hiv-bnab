@@ -26,6 +26,8 @@ class Parameters:
     mutation_silent_prob = 0.5  # think Leerang accidently flipped these 2 values
     output_prob = 0.05
     output_pc_fraction = 0.1
+    egc_output_prob = 1.
+    egc_output_pc_fraction = 0.6
     
     gc_entry_birth_rate = 1
     bcell_birth_rate = 2.5

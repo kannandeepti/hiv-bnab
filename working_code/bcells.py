@@ -22,9 +22,9 @@ class Bcells(Parameters):
             (self.initial_bcell_number, self.n_res, self.n_var)
         )
         self.reset_bcell_fields()                                                                                           # (num_bcell, n_res, n_var)
-        self.mutation_state1 = None#???
-        self.mutation_state2 = None
-        self.unique_clone_index = None
+        # self.mutation_state1 = None#???
+        # self.mutation_state2 = None
+        # self.unique_clone_index = None
 
         self.array_names = [
             'mutation_state_array',
@@ -35,9 +35,9 @@ class Bcells(Parameters):
             'activated_time',
             'num_mut',
             'gc_or_egc_derived'
-            'mutation_state1',
-            'mutation_state2',
-            'unique_clone_index'
+            # 'mutation_state1',
+            # 'mutation_state2',
+            # 'unique_clone_index'
         ]
     
     def reset_bcell_fields(self) -> None:
@@ -164,7 +164,6 @@ class Bcells(Parameters):
         """
         conc_array = np.zeros(shape=self.lineage.shape)
         for ep in range(self.n_ep):
-            #could get rid of the +1 here so that target_epitope is coded as 0, 1, 2, etc. 
             matching_epitope = self.target_epitope == ep
             conc_array += conc[ep] * matching_epitope * (self.activated_time == 0)
 
@@ -259,12 +258,18 @@ class Bcells(Parameters):
         return mutated_bcells
 
 
-    def differentiate_bcells(self, tag_value: int, mutate: bool=True) -> tuple[Self]:
+    def differentiate_bcells(
+        self, 
+        tag_value: int, 
+        output_prob: float, 
+        output_pc_fraction: float,
+        mutate: bool=True
+    ) -> tuple[Self]:
         """Divide bcells into memory, plasma, nonexported_bcells."""
         # Exported indices
         birth_bcells_idx = np.arange(len(self.lineage))
-        output_idx = utils.get_sample(birth_bcells_idx, p=self.output_prob)
-        plasma_idx = utils.get_sample(output_idx, p=self.output_pc_fraction)
+        output_idx = utils.get_sample(birth_bcells_idx, p=output_prob)
+        plasma_idx = utils.get_sample(output_idx, p=output_pc_fraction)
         memory_idx = utils.get_other_idx(output_idx, plasma_idx)
 
         # Nonexported indices

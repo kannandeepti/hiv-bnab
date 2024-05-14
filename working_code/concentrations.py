@@ -24,20 +24,20 @@ class Concentrations(Parameters):
         """Initialize concentration arrays.
         
         Attributes:
-            ig_type - Different Ig types
-            num_ig_types - Number of different Ig types.
-            ig_types_arr - Not sure. Involved in matmul with ig_new and ka_new
+            ig_type: Different Ig types
+            num_ig_types: Number of different Ig types.
+            ig_types_arr: Not sure. Involved in matmul with ig_new and ka_new
                 (shape=(num_ig_types, n_ep))
-            ag_conc - Concentrations of Ag (shape=(n_ep + 1, n_ag)). 
+            ag_conc: Concentrations of Ag (shape=(n_ep + 1, n_ag)). 
                 ag_conc[0] corresponds to soluble Ag.
-            ab_conc - Concentrations of Ab (shape=(num_ig_types, n_ep))
-            ab_decay_rates - Decay rates for Ig types. Multiplied with ab_conc.
+            ab_conc: Concentrations of Ab (shape=(num_ig_types, n_ep))
+            ab_decay_rates: Decay rates for Ig types. Multiplied with ab_conc.
                 np.ndarray (shape=(num_ig_types, np.newaxis))
-            ab_ka_condense_fn - If there are multiple variant antigens being
+            ab_ka_condense_fn: If there are multiple variant antigens being
                 given at once in the GC, this function determines which Ka to use.
                 Default is to use the mean, but I think Leerang/Melbourne use the
                 WT at index 0.
-            ab_ka - Kas for antibodies to multiple variants.
+            ab_ka: Kas for antibodies to multiple variants.
                 (shape=(n_var, num_ig_types, n_ep))
         """
         super().__init__()
