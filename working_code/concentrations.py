@@ -13,8 +13,8 @@ class ConcentrationIdx(Enum):
     IC_FDC = 1
     # ab_conc and ab_ka
     IGM_NAT = 0
-    IGM_IMM = 2
-    IGG = 1
+    IGM_IMM = 1
+    IGG = 2
 
 
 class Concentrations(Parameters):

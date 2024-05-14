@@ -1,3 +1,5 @@
+import dataclasses
+import os
 from typing import Self
 import numpy as np
 import utils
@@ -12,11 +14,26 @@ class Simulation(Parameters):
 
     def __init__(self):
         super().__init__()
-        self.create_file_path()
+        self.create_file_paths()
         self.concentrations = Concentrations()
 
     
-    def create_file_path(self) -> None:
+    def write_param_json(self) -> None:
+        """Write parameters to json file.
+        
+        XXX still need to adjust this to write non-default parameters.
+        """
+        parameters = Parameters()
+        parameter_dict = {
+            field.name: getattr(parameters, field.name)
+            for field in dataclasses.fields(parameters)
+        }
+        utils.write_json(parameter_dict, os.path.join(self.data_dir, 'parameters.json'))
+
+    
+    def create_file_paths(self) -> None:
+        self.data_dir = '' # XXX
+        self.prev_file_path = '' # XXX
         self.file_path = '' #XXX
 
 
@@ -133,13 +150,13 @@ class Simulation(Parameters):
         self.plasma_bcells.kill()
         self.memory_bcells.kill()
 
-        plasma_bcells_gc = self.plasma_bcells.filter_by_tag(utils.DerivedCells.GC) #XXX
-        plasma_bcells_egc = self.plasma_bcells.filter_by_tag(utils.DerivedCells.EGC)
+        plasma_bcells_gc = self.plasma_bcells.get_filtered_by_tag(utils.DerivedCells.GC)
+        plasma_bcells_egc = self.plasma_bcells.get_filtered_by_tag(utils.DerivedCells.EGC)
         self.concentrations.update_concentrations(self.current_time, plasma_bcells_gc, plasma_bcells_egc)
 
 
     def read_checkpoint(self) -> None:
-        self: Self = utils.read_pickle(self.file_path)
+        self: Self = utils.read_pickle(self.prev_file_path)
         for gc_idx in range(self.num_gc):
             self.gc_bcells[gc_idx] = Bcells()
         self.egc_bcells = self.memory_bcells
@@ -159,6 +176,7 @@ class Simulation(Parameters):
             self.run_timestep(timestep_idx)
 
         utils.write_pickle(self, self.file_path)
+        self.write_param_json()
 
 
 

@@ -28,7 +28,7 @@ class Bcells(Parameters):
         self.num_mut = np.zeros(self.initial_bcell_number)                                          # (num_bcell) ???
         self.gc_or_egc_derived = np.zeros(
             self.initial_bcell_number, dtype=int
-        ) + utils.DerivedCells.UNSET.value                                                          # (num_bcell), 0=gc,, 1=egc, unset=-1
+        ) + utils.DerivedCells.UNSET.value                                                          # (num_bcell), 1=gc,, 2=egc, unset=0
         self.mutation_state1 = None#???
         self.mutation_state2 = None
         self.unique_clone_index = None
@@ -69,10 +69,10 @@ class Bcells(Parameters):
             setattr(self, array_name, new_array)
 
 
-    def tag_gc_or_egc_derived(self, pop_value: int) -> None:
+    def tag_gc_or_egc_derived(self, tag_value: int) -> None:
         self.gc_or_egc_derived = np.zeros(
             shape=self.lineage.shape, dtype=int
-        ) + pop_value
+        ) + tag_value
     
 
     def get_naive_bcells_arr(self) -> np.ndarray:
@@ -179,18 +179,6 @@ class Bcells(Parameters):
             incoming_naive = np.array([])
             
         return incoming_naive
-    
-
-    def get_bcells_from_idx(self, idx) -> Self:
-        new_bcells = copy.deepcopy(self)
-        new_bcells.replace_all_arrays(idx)
-        return new_bcells
-    
-
-    def get_seeding_bcells(self, conc: np.ndarray) -> Self:
-        seeding_idx = self.get_seeding_idx(conc)
-        seeding_bcells = self.get_bcells_from_idx(seeding_idx)
-        return seeding_bcells
         
 
     def get_birth_idx(self, conc: np.ndarray, tcell: float) -> np.ndarray:
@@ -214,12 +202,27 @@ class Bcells(Parameters):
             birth_idx = np.array([])
 
         return birth_idx
+
+
+    def get_bcells_from_idx(self, idx) -> Self:
+        new_bcells = copy.deepcopy(self)
+        new_bcells.replace_all_arrays(idx)
+        return new_bcells
+    
+    
+    def get_filtered_by_tag(self, tag_value: int) -> Self:
+        filtered_idx = np.where(self.gc_or_egc_derived == tag_value)[0]
+        return self.get_bcells_from_idx(filtered_idx)
+    
+    
+    def get_seeding_bcells(self, conc: np.ndarray) -> Self:
+        seeding_idx = self.get_seeding_idx(conc)
+        return self.get_bcells_from_idx(seeding_idx)
     
 
     def get_daughter_bcells(self, conc: np.ndarray, tcell: float) -> Self:
         birth_idx = self.get_birth_idx(conc, tcell)
-        daughter_bcells = self.get_bcells_from_idx(birth_idx)
-        return daughter_bcells
+        return self.get_bcells_from_idx(birth_idx)
 
 
     def get_mutated_bcells_from_idx(self, idx: np.ndarray) -> Self:
@@ -253,7 +256,7 @@ class Bcells(Parameters):
         return mutated_bcells
 
 
-    def divide_bcells(self, pop_value: int, mutate: bool=True) -> tuple[Self]:
+    def divide_bcells(self, tag_value: int, mutate: bool=True) -> tuple[Self]:
         """Divide bcells into memory, plasma, nonexported_bcells."""
         # Exported indices
         birth_bcells_idx = np.arange(len(self.lineage))
@@ -267,7 +270,7 @@ class Bcells(Parameters):
         nondeath_idx = utils.get_other_idx(nonoutput_idx, death_idx)
         silent_mutation_idx = utils.get_sample(
             nondeath_idx, 
-            p=self.mutation_silent_prob * len(nonoutput_idx) / len(nondeath_idx)
+            p=self.mutation_silent_prob * len(nonoutput_idx) / len(nondeath_idx)  # need to increase prob because some cells were already taken out
         )
         affinity_change_idx = utils.get_other_idx(nondeath_idx, silent_mutation_idx)
 
@@ -281,9 +284,9 @@ class Bcells(Parameters):
             nonmutated_bcells.add_bcells(mutated_bcells)
 
         # Tag bcells as GC or EGC-derived
-        memory_bcells.tag_gc_or_egc_derived(pop_value)
-        plasma_bcells.tag_gc_or_egc_derived(pop_value)
-        nonmutated_bcells.tag_gc_or_egc_derived(pop_value)
+        memory_bcells.tag_gc_or_egc_derived(tag_value)
+        plasma_bcells.tag_gc_or_egc_derived(tag_value)
+        nonmutated_bcells.tag_gc_or_egc_derived(tag_value)
 
         return memory_bcells, plasma_bcells, nonmutated_bcells
     
