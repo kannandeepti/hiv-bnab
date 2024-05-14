@@ -162,7 +162,8 @@ class Bcells(Parameters):
         """
         conc_array = np.zeros(shape=self.lineage.shape)
         for ep in range(self.n_ep):
-            matching_epitope = self.target_epitope == (ep + 1)
+            #could get rid of the +1 here so that target_epitope is coded as 0, 1, 2, etc. 
+            matching_epitope = self.target_epitope == ep
             conc_array += conc[ep] * matching_epitope * (self.activated_time == 0)
 
         ## assuming WT at ind 0 is the correct variant to use XXX
@@ -185,7 +186,7 @@ class Bcells(Parameters):
         """Get indices of Bcells that will undergo birth."""
         conc_array = np.zeros(shape=self.lineage.shape)
         for ep in range(self.n_ep):
-            conc_array += conc[ep] * (self.target_epitope == (ep + 1))
+            conc_array += conc[ep] * (self.target_epitope == ep)
 
         ## assuming WT at ind 0 is the correct variant to use XXX
         activation_signal, activated = self.get_activation(conc_array, 0)

@@ -213,30 +213,31 @@ class Concentrations(Parameters):
         threshold = current_time - self.delay
         ig_new = np.zeros((self.num_ig_types, self.n_ep))
         ka_new = np.array([ig_new for _ in range(self.n_var)]) # (n_var, 3, n_ep)
-        affinity = np.empty(shape=(self.n_var, self.num_ig_types), dtype=object)
+        affinity = np.empty(shape=(self.n_var, self.num_ig_types), dtype=object) # (n_var, n_ig_types)
         target = np.empty(self.num_ig_types, dtype=object)
 
         for var in range(self.n_var):
             #affinity[var, 0] = plasmablasts.var #XXX what were the plasmablasts doing?
-            affinity[var, 1] = plasma_bcells_gc.variant_affinities[:, var]
+            affinity[var, 1] = plasma_bcells_gc.variant_affinities[:, var] #(num_bcells,)
             affinity[var, 2] = plasma_bcells_egc.variant_affinities[:, var]
+            #GC derived plasma cell antibodies only contribute to concentration after delay time of 2 days
             target[1] = (
                 plasma_bcells_gc.target_epitope * 
                 (plasma_bcells_gc.activated_time < threshold)
             )
-            target[2] = plasma_bcells_egc.target_epitope
+            target[2] = plasma_bcells_egc.target_epitope #(num_bcells,)
 
         for ig_idx, ig_type in enumerate(self.ig_types):
             for ep in range(self.n_ep):
-                if utils.any(target[ig_idx].flatten() - 1 == ep):
+                if utils.any(target[ig_idx].flatten() == ep):
                     ig_new[ig_idx, ep] = (
-                        (target[ig_idx] - 1 == ep).sum() * 
+                        (target[ig_idx] == ep).sum() * 
                         self.r_igm * (ig_idx == 0) + 
                         self.r_igg * (ig_idx > 0)
                     )
 
                     for var in range(self.n_var):
-                        target_idx = target[ig_idx] - 1 == ep
+                        target_idx = target[ig_idx] == ep
                         ka_new[var, ig_idx, ep] = np.mean(
                             (10 ** affinity[var, ig_idx][target_idx] + 
                              self.nm_to_m_conversion)

@@ -50,7 +50,7 @@ class Simulation(Parameters):
             for j, fitness in enumerate(self.fitness_array):
                 idx_new = idx + naive_bcells_int[ep, j]
                 naive_bcells.lineage[idx: idx_new] = np.arange(idx, idx_new) + 1
-                naive_bcells.target_epitope[idx: idx_new] = ep + 1
+                naive_bcells.target_epitope[idx: idx_new] = ep
                 # XXX assuming all variants except WT are E0
                 naive_bcells.variant_affinities[idx: idx_new, 0] = fitness          # Vax Strain aff
                 naive_bcells.variant_affinities[idx: idx_new, 1:self.n_var] = self.E0    # Variant1 aff
