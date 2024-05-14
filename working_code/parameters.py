@@ -92,6 +92,12 @@ class Parameters:
         dose = ag0
     else:
         raise ValueError('Slow delivery not used.')
+    
+
+    @property
+    def rho(self) -> list[list[float]]:
+        """Using a property in case it needs to be more complicated later."""
+        return [[0.95, 0.4], [0.4, 0.95]]
 
 
     @property

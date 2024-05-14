@@ -73,7 +73,7 @@ def any(x):
             return 0
 
 
-def reshape_(x: np.adarray, row: bool=False) -> np.ndarray:
+def reshape_(x: np.ndarray, row: bool=False) -> np.ndarray:
     """
     If vector, then reshape to a 1D column matrix.
     """
