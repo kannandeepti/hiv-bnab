@@ -15,9 +15,13 @@ class Bcells(Parameters):
         All the parameters from Parameters are included. The birth/death rates and
         bcell field arrays are set as well.
 
+        Args:
+            initial_number: Initial number of bcells.
+
         Attributes:
             birth_rate: bcell birth rate
             death_rate: bcell death rate. Specific to each type of bcell.
+            initial_number: Initial number of bcells.
             array_names: Names of the bcell field arrays. This is used for modifying
                 all bcell field arrays at once (replace_all_arrays, filter_all_arrays)
         """
@@ -28,9 +32,6 @@ class Bcells(Parameters):
             initial_number if initial_number else self.initial_bcell_number
         )
         self.reset_bcell_fields()
-        # self.mutation_state1 = None#???
-        # self.mutation_state2 = None
-        # self.unique_clone_index = None
 
         self.array_names = [
             'mutation_state_array',
@@ -39,11 +40,7 @@ class Bcells(Parameters):
             'target_epitope',
             'variant_affinities',
             'activated_time',
-            # 'n_mut',
             'gc_or_egc_derived'
-            # 'mutation_state1',
-            # 'mutation_state2',
-            # 'unique_clone_index'
         ]
     
     def reset_bcell_fields(self) -> None:
@@ -74,7 +71,6 @@ class Bcells(Parameters):
         self.target_epitope = np.zeros(self.initial_number)                                   # (n_bcell)
         self.variant_affinities = np.zeros((self.initial_number, self.n_var))                   # (n_bcell, n_var)
         self.activated_time = np.zeros(self.initial_number)                                   # (n_bcell)
-        # self.n_mut = np.zeros(self.initial_number)                                          # (n_bcell) ???
         self.gc_or_egc_derived = np.zeros(
             self.initial_number, dtype=int
         ) + utils.DerivedCells.UNSET.value                                                          # (n_bcell), 1=gc,, 2=egc, unset=0

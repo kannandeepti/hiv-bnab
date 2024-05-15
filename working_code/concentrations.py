@@ -113,18 +113,18 @@ class Concentrations(Parameters):
 
         total_ab_conc_per_epitope_with_overlap = (
             total_ab_conc_per_epitope @ self.overlap_matrix
-        )[:, np.newaxis] # shape n_ep
+        ) # shape n_ep
 
         average_ka_per_epitope_with_overlap = ((
             weighted_total_ab_conc_per_epitope @ self.overlap_matrix
-        ) / total_ab_conc_per_epitope_with_overlap)[:, np.newaxis] # shape n_ep
+        ) / total_ab_conc_per_epitope_with_overlap) # shape n_ep
 
         total_ag_conc = self.ag_conc.sum(axis=0)  # shape n_ag
 
         IC = self.get_IC(
-            total_ab_conc_per_epitope_with_overlap / 5,  # XXX should we change from 5, shape n_ep
+            total_ab_conc_per_epitope_with_overlap[:, np.newaxis] / 5,  # XXX should we change from 5, shape n_ep
             total_ag_conc,                               # XXX shape n_ag
-            average_ka_per_epitope_with_overlap          # XXX shape n_ep
+            average_ka_per_epitope_with_overlap[:, np.newaxis]          # XXX shape n_ep
         )
 
         total_free_ag_conc = total_ag_conc - self.masking * IC # shape (n_ep, n_ag)

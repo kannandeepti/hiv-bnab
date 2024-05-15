@@ -191,12 +191,12 @@ class Parameters:
     
     w1: float = 0
     """
-    Weight. XXX
+    Parameter for Ag capture saturation, "alternative Ag capture model".
     """
     
     w2: float = 0.5
     """
-    Weight. XXX
+    Stringency of Ag capture.
     """
     
     ag_eff: float = 0.01
@@ -354,6 +354,7 @@ class Parameters:
     def overlap_matrix(self) -> None:
         """Defines the epitope overlap matrix."""
         overlap_matrix = np.eye(self.n_ep)
+        # XXX adjust if there is some overlap
         return overlap_matrix
     
 
