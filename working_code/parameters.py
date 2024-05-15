@@ -14,6 +14,7 @@ class Parameters:
     vax_timing = [28, 28, 28]
     vax_idx = 0
     dt = 0.01
+    epsilon = 1e-11
 
     num_gc = 200
     initial_bcell_number = 1

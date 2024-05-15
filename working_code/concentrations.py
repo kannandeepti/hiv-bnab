@@ -48,6 +48,7 @@ class Concentrations(Parameters):
 
         self.ag_conc = np.zeros((self.n_ep + 1, self.n_ag))
         self.ab_conc = np.zeros((self.num_ig_types, self.n_ep))
+        self.ab_conc[0] = self.igm0 / self.n_ep
         self.ab_decay_rates = np.array([0, self.d_igm, self.d_igg])[:, np.newaxis]
 
         self.ab_ka_condense_fn: Callable[
@@ -165,7 +166,7 @@ class Concentrations(Parameters):
 
         Returns:
             deposit_rates: The FDC-deposit rates. np.ndarray
-                (shape=(num_ig_types, n_ep, n_ag)).
+                (shape=(n_ag, num_ig_types, n_ep)).
         """
         if L > 0 and R.sum() > 0:
             IC_soluble = self.get_IC(
@@ -177,11 +178,10 @@ class Concentrations(Parameters):
                 IC_soluble * 
                 self.ab_ka_condense_fn(self.ab_ka) * 
                 self.ab_conc
-             ) / denom
-            deposit_rates = deposit_rates.T
+             ) / denom  # shape (n_ag, num_ig_types, n_ep)
         else:
             deposit_rates = np.zeros(
-                shape=self.ab_ka_condense_fn(self.ab_ka).shape + tuple([self.n_ag])
+                shape=(self.n_ag, self.num_ig_types, self.n_ep)
             )
         return deposit_rates
     
@@ -197,25 +197,29 @@ class Concentrations(Parameters):
 
         Args:
             deposit_rates: The FDC-deposit rates. np.ndarray
-                (shape=(num_ig_types, n_ep, n_ag)).
+                (shape=(n_ag, num_ig_types, n_ep)).
             current_time: Current simulation time from Simulation class.
 
         Returns:
             deposit_rates: Rescaled FDC-deposit rates.
-                np.ndarray (shape=(num_ig_types, n_ep, n_ag)).
+                np.ndarray (shape=(n_ag, num_ig_types, n_ep)).
             ab_decay: Rescaled Ab decay rates.
                 np.ndarray (shape=(num_ig_types, n_ep))
         """
-        ab_decay = -deposit_rates.sum(axis=2) - self.ab_decay_rates * self.ab_conc # (3, n_ep)
+        ab_decay = (
+            -deposit_rates.sum(axis=2) - 
+            self.ab_decay_rates * self.ab_conc + 
+            self.epsilon
+         ) # (3, n_ep)
         rescale_idx = self.ab_conc < -ab_decay * self.dt # (3, n_ep)
         rescale_factor = self.ab_conc / (-ab_decay * self.dt) # (3, n_ep)
         if rescale_idx.flatten().sum():
             print(f'Ab reaction rates rescaled. Time={current_time:.2f}')
-            deposit_rates[rescale_idx] *= rescale_factor[rescale_idx]
+            deposit_rates[:, rescale_idx] *= rescale_factor[rescale_idx]
             ab_decay[rescale_idx] *= rescale_factor[rescale_idx]
             if np.isnan(ab_decay.flatten()).sum():
                 raise ValueError('Rescaled Ab decay rates contain Nan')
-        return deposit_rates, ab_decay  # (3, n_ep, n_ag) (3, n_ep)
+        return deposit_rates, ab_decay  # (shape=(n_ag, num_ig_types, n_ep)) (3, n_ep)
     
 
     def get_rescaled_ag_decay(self, 
@@ -227,13 +231,13 @@ class Concentrations(Parameters):
 
         Args:
             deposit_rates: FDC-deposit rates. np.ndarray
-                (shape=(num_ig_types, n_ep, n_ag)).
+                (shape=(n_ag, num_ig_types, n_ep)).
             ab_decay: Ab decay rates. np.ndarray (shape=(num_ig_types, n_ep))
             current_time: Current simulation time from Simulation class.
 
         Returns:
             deposit_rates: Rescaled FDC-deposit rates. np.ndarray
-                (shape=(num_ig_types, n_ep, n_ag)).
+                (shape=(n_ag, num_ig_types, n_ep)).
             ag_decay: Rescaled Ag decay rates.
                 np.ndarray (shape=(n_ag))
             ab_decay: Rescaled Ab decay rates.
@@ -242,7 +246,8 @@ class Concentrations(Parameters):
         """
         ag_decay = (
             -self.d_ag * self.ag_conc[ConcentrationIdx.SOLUBLE.value] -
-            deposit_rates.sum(axis=(0,1))  # (n_ag)
+            deposit_rates.sum(axis=(1,2)) + 
+            self.epsilon  # (n_ag)
         )
 
         rescale_idx = (
@@ -258,10 +263,10 @@ class Concentrations(Parameters):
             print(f'Ag reaction rates rescaled. Time={current_time:.2f}')
             ag_decay[rescale_idx] *= rescale_factor  # (n_ag)
             deposit_rates_rescaled = copy.deepcopy(deposit_rates)
-            deposit_rates_rescaled[:, :, rescale_idx] *= rescale_factor  # (3, n_ep, n_ag)
+            deposit_rates_rescaled[:, :, rescale_idx] *= rescale_factor  #(shape=(n_ag, num_ig_types, n_ep))
             ab_decay += (
-                deposit_rates.sum(axis=2) - 
-                deposit_rates_rescaled.sum(axis=2)  # (3, n_ep)
+                deposit_rates.sum(axis=0) - 
+                deposit_rates_rescaled.sum(axis=0)  # (3, n_ep)
             )
             deposit_rates = deposit_rates_rescaled
         return deposit_rates, ag_decay, ab_decay
@@ -278,32 +283,33 @@ class Concentrations(Parameters):
         
         Args:
             deposit_rates: FDC-deposit rates. np.ndarray
-                (shape=(num_ig_types, n_ep, n_ag)).
+                (shape=(n_ag, num_ig_types, n_ep)).
             ag_decay_rescaled: Ag decay rates. np.ndarray (shape=(n_ag))
             ab_decay: Ab decay rates. np.ndarray (shape=(num_ig_types, n_ep))
             current_time: Current simulation time from Simulation class.
         """
-        self.ag_conc[ConcentrationIdx.SOLUBLE] += (
+        self.ag_conc[ConcentrationIdx.SOLUBLE.value] += (
             ag_decay * self.dt + self.F0 * 
             np.exp(self.k * current_time) * (current_time < self.T * self.dt)
         )
 
-        self.ag_conc[ConcentrationIdx.IC_FDC:] += (
-            deposit_rates.sum(axis=0) * self.dt + 
-            self.ag_conc[ConcentrationIdx.IC_FDC:] * self.d_IC * self.dt
+        self.ag_conc[ConcentrationIdx.IC_FDC.value:] += (
+            deposit_rates.sum(axis=1).T * self.dt + 
+            self.ag_conc[ConcentrationIdx.IC_FDC.value:] * self.d_IC * self.dt
         )
 
         self.ab_conc += ab_decay * self.dt
         self.ab_conc[np.abs(self.ab_conc) < self.conc_threshold] = 0
 
         for array in [self.ag_conc, self.ab_conc]:
-            if utils.any(array.flatten() < 0):
+            if np.any(array.flatten() < 0):
                 raise ValueError('Negative concentration.')
             
     
     def get_new_arrays(
         self, 
-        current_time: float, 
+        current_time: float,
+        plasmablasts: Bcells,
         plasma_bcells_gc: Bcells, 
         plasma_bcells_egc: Bcells
     ) -> tuple[np.ndarray]:
@@ -327,19 +333,19 @@ class Concentrations(Parameters):
         target = np.empty(self.num_ig_types, dtype=object)
 
         for var in range(self.n_var):
-            #affinity[var, 0] = plasmablasts.var #XXX what were the plasmablasts doing?
-            affinity[var, 1] = plasma_bcells_gc.variant_affinities[:, var] #(num_bcells,)
-            affinity[var, 2] = plasma_bcells_egc.variant_affinities[:, var]
-            #GC derived plasma cell antibodies only contribute to concentration after delay time of 2 days
-            target[1] = (
-                plasma_bcells_gc.target_epitope * 
-                (plasma_bcells_gc.activated_time < threshold)
-            )
-            target[2] = plasma_bcells_egc.target_epitope #(num_bcells,)
+            bcell_list = [plasmablasts, plasma_bcells_gc, plasma_bcells_egc]
+            for ig_idx, bcells in enumerate(bcell_list):
+                affinity[var, ig_idx] = bcells.variant_affinities[:, var]
+                # GC derived plasma cell antibodies only contribute to concentration
+                # after delay time of 2 days
+                threshold_value = {
+                    ConcentrationIdx.IGG.value: (bcells.activated_time < threshold)
+                }.get(ig_idx, 1)
+                target[ig_idx] = bcells.target_epitope * threshold_value
 
         for ig_idx, ig_type in enumerate(self.ig_types):
             for ep in range(self.n_ep):
-                if utils.any(target[ig_idx].flatten() == ep):
+                if np.any(target[ig_idx].flatten() == ep):
                     ig_new[ig_idx, ep] = (
                         (target[ig_idx] == ep).sum() * 
                         self.r_igm * (ig_idx == 0) + 
@@ -348,10 +354,11 @@ class Concentrations(Parameters):
 
                     for var in range(self.n_var):
                         target_idx = target[ig_idx] == ep
-                        ka_new[var, ig_idx, ep] = np.mean(
-                            (10 ** affinity[var, ig_idx][target_idx] + 
-                             self.nm_to_m_conversion)
+                        log10_aff = (
+                            affinity[var, ig_idx][target_idx] + 
+                            self.nm_to_m_conversion
                         )
+                        ka_new[var, ig_idx, ep] = np.mean(10 ** log10_aff)
         
         return ig_new, ka_new
     
@@ -377,13 +384,13 @@ class Concentrations(Parameters):
             new_ka = (
                 current_sum + 
                 self.ig_types_arr @ (ig_new * ka_new[var] * self.dt)
-            ) / self.ab_conc
+            ) / (self.ab_conc + self.epsilon)
 
             new_ka[self.ab_conc == 0] = 0
 
-            if utils.any(new_ka.flatten() < 0):
-                print('Warning: Error in Ka value, negative')
-            if utils.any(np.abs(new_ka).flatten() > self.max_ka):
+            if np.any(new_ka.flatten() < 0):
+                print('Warning: Error in Ka values, negative')
+            if np.any(np.abs(new_ka).flatten() > self.max_ka):
                 print(f'Warning: Error in Ka value, greater than {self.max_ka = }')
 
             new_ka[np.isnan(new_ka)] = 0
@@ -392,7 +399,8 @@ class Concentrations(Parameters):
 
     def update_concentrations(
         self, 
-        current_time: float, 
+        current_time: float,
+        plasmablasts: Bcells,
         plasma_bcells_gc: Bcells, 
         plasma_bcells_egc: Bcells
     ) -> None:
@@ -419,27 +427,27 @@ class Concentrations(Parameters):
 
         deposit_rates = self.get_deposit_rates(
             total_ab_conc, soluble_ag_conc, avg_ka
-        ) # (3, n_ep, n_ag)
+        ) # (shape=(n_ag, num_ig_types, n_ep))
 
         ab_conc_copy = copy.deepcopy(self.ab_conc)
         
         deposit_rates, ab_decay = self.get_rescaled_rates(
             deposit_rates, current_time
-        ) # (3, n_ep, n_ag) (3, n_ep)
+        ) # (shape=(n_ag, num_ig_types, n_ep)) (3, n_ep)
 
         deposit_rates, ag_decay, ab_decay = self.get_rescaled_ag_decay(
-            deposit_rates, ab_decay
+            deposit_rates, ab_decay, current_time
         )
 
         self.ag_ab_update(deposit_rates, ag_decay, ab_decay, current_time)
         ig_new, ka_new = self.get_new_arrays(
-            current_time, plasma_bcells_gc, plasma_bcells_egc
+            current_time, plasmablasts, plasma_bcells_gc, plasma_bcells_egc
         )
 
         # Update amounts and Ka
-        self.ab_conc[ConcentrationIdx.IC_FDC:] += np.vstack([
-            ig_new[ConcentrationIdx.IGM_NAT, :],
-            ig_new[ConcentrationIdx.IGM_IMM:, :].sum(axis=0)
+        self.ab_conc[ConcentrationIdx.IC_FDC.value:] += np.vstack([
+            ig_new[ConcentrationIdx.IGM_NAT.value, :],
+            ig_new[ConcentrationIdx.IGM_IMM.value:, :].sum(axis=0)
         ]) * self.dt
         self.update_ka(ab_conc_copy, ab_decay, ig_new, ka_new)
 

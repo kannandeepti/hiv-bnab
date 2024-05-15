@@ -1,5 +1,5 @@
 import copy
-from typing import Self
+from typing import Self, Optional
 import numpy as np
 import utils
 from parameters import Parameters
@@ -9,7 +9,7 @@ from parameters import Parameters
 class Bcells(Parameters):
 
 
-    def __init__(self):
+    def __init__(self, initial_number: Optional[int]=None):
         """Initialize attributes.
         
         All the parameters from Parameters are included. The birth/death rates and
@@ -22,9 +22,11 @@ class Bcells(Parameters):
                 all bcell field arrays at once (replace_all_arrays, filter_all_arrays)
         """
         super().__init__()
-
         self.birth_rate = self.bcell_birth_rate
         self.death_rate = None
+        self.initial_number = (
+            initial_number if initial_number else self.initial_bcell_number
+        )
         self.reset_bcell_fields()
         # self.mutation_state1 = None#???
         # self.mutation_state2 = None
@@ -63,18 +65,18 @@ class Bcells(Parameters):
                 was derived from the GC or EGC. See utils.DerivedCells for tag values.
         """
         self.mutation_state_array = np.zeros(
-            (self.initial_bcell_number, self.n_res), dtype=int
+            (self.initial_number, self.n_res), dtype=int
         )                                                                                           # (num_bcell, n_res)
         self.precalculated_dEs = np.zeros(                                                          # (num_bcell, n_res, n_var)
-            (self.initial_bcell_number, self.n_res, self.n_var)
+            (self.initial_number, self.n_res, self.n_var)
         )
-        self.lineage = np.zeros(self.initial_bcell_number)                                          # (num_bcell), i think 0 indicates empty b cell
-        self.target_epitope = np.zeros(self.initial_bcell_number)                                   # (num_bcell)
-        self.variant_affinities = np.zeros((self.initial_bcell_number, self.n_var))                   # (num_bcell, num_var)
-        self.activated_time = np.zeros(self.initial_bcell_number)                                   # (num_bcell)
-        # self.num_mut = np.zeros(self.initial_bcell_number)                                          # (num_bcell) ???
+        self.lineage = np.zeros(self.initial_number)                                          # (num_bcell), i think 0 indicates empty b cell
+        self.target_epitope = np.zeros(self.initial_number)                                   # (num_bcell)
+        self.variant_affinities = np.zeros((self.initial_number, self.n_var))                   # (num_bcell, num_var)
+        self.activated_time = np.zeros(self.initial_number)                                   # (num_bcell)
+        # self.num_mut = np.zeros(self.initial_number)                                          # (num_bcell) ???
         self.gc_or_egc_derived = np.zeros(
-            self.initial_bcell_number, dtype=int
+            self.initial_number, dtype=int
         ) + utils.DerivedCells.UNSET.value                                                          # (num_bcell), 1=gc,, 2=egc, unset=0
 
 
@@ -436,7 +438,7 @@ class Bcells(Parameters):
             mutated_idx, mutated_residues, :
         ]
 
-        if utils.any(mutated_bcells.variant_affinities > self.max_affinity):
+        if np.any(mutated_bcells.variant_affinities > self.max_affinity):
             raise ValueError('Affinity impossibly high.')
         
         return mutated_bcells

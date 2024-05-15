@@ -52,28 +52,6 @@ def get_other_idx(arr1: np.ndarray, arr2: np.ndarray) -> np.ndarray:
 def get_death_rate_from_half_life(half_life: float, dt: float) -> float:
     """Given a bcell half-life, calculate the corresponding death rate."""
     return 1 / dt * (1 - (2 ** (-dt / half_life)))
-
-
-def any(x):
-    """
-    Equivalent of any function in Matlab.
-    """
-    if (isinstance(x, int) or isinstance(x, float)) and (x != 0):
-        return 1
-    elif (isinstance(x, int) or isinstance(x, float)) and (x == 0):
-        return 0
-    if len(x.shape) > 1:
-        first_ind = np.where(np.array(x.shape) > 1)[0][0]
-        y = np.zeros(shape = x.shape[first_ind + 1:])
-        inds = np.nonzero(x)[first_ind + 1:]
-        if len(inds) > 0:
-            y[np.nonzero(x)[first_ind + 1:]] = 1
-        return y
-    else:
-        if len(np.nonzero(x)[0]) > 0:
-            return 1
-        else:
-            return 0
         
 
 ##########################################################################
