@@ -1,6 +1,6 @@
 import dataclasses
 import os
-from typing import Self
+from typing import Self, Any
 import numpy as np
 import utils
 from parameters import Parameters
@@ -23,17 +23,18 @@ class Simulation(Parameters):
         self.concentrations = Concentrations()
 
     
-    def write_param_json(self) -> None:
+    def get_parameter_dict(self) -> None:
         """Write parameters to json file.
+
+        Properties from Parameter class are not included.
         
         XXX still need to adjust this to write non-default parameters.
         """
         parameters = Parameters()
-        parameter_dict = {
+        return {
             field.name: getattr(parameters, field.name)
             for field in dataclasses.fields(parameters)
         }
-        utils.write_json(parameter_dict, os.path.join(self.data_dir, 'parameters.json'))
 
     
     def create_file_paths(self) -> None:
@@ -44,8 +45,9 @@ class Simulation(Parameters):
         file_path: path to the pickle file for the current vax
         """
         self.data_dir = '' # XXX
-        self.prev_file_path = '' # XXX
-        self.file_path = '' #XXX
+        self.prev_pickle_path = '' # XXX
+        self.pickle_path = '' #XXX
+        self.parameter_json_path = os.path.join(self.data_dir, 'parameters.json')
 
 
     def get_naive_bcells(self) -> Bcells:
@@ -81,7 +83,7 @@ class Simulation(Parameters):
 
     def set_death_rates(self) -> None:
         """Set death rates for all bcell populations."""
-        for gc_idx in range(self.num_gc):
+        for gc_idx in range(self.n_gc):
             self.gc_bcells[gc_idx].death_rate = self.bcell_death_rate
         self.egc_bcells.death_rate = self.bcell_death_rate
         self.plasma_bcells.death_rate = utils.get_death_rate_from_half_life(
@@ -96,16 +98,16 @@ class Simulation(Parameters):
         """Create bcell populations.
 
         Attributes:
-            gc_bcells: list of num_gc empty Bcells
-            naive_bcells: list of num_gc Bcells created by get_naive_bcells
+            gc_bcells: list of n_gc empty Bcells
+            naive_bcells: list of n_gc Bcells created by get_naive_bcells
             egc_bcells: empty Bcells
             plasma_bcells: empty Bcells
             memory_bcells: empty Bcells
         """
 
-        self.gc_bcells = [Bcells() for _ in range(self.num_gc)]
-        self.naive_bcells = [Bcells() for _ in range(self.num_gc)]
-        for gc_idx in range(self.num_gc):
+        self.gc_bcells = [Bcells() for _ in range(self.n_gc)]
+        self.naive_bcells = [Bcells() for _ in range(self.n_gc)]
+        for gc_idx in range(self.n_gc):
             self.gc_bcells[gc_idx] = Bcells()
             self.naive_bcells[gc_idx] = self.get_naive_bcells()
 
@@ -119,7 +121,7 @@ class Simulation(Parameters):
     def run_gc(self, gc_idx: int) -> None:
         """Run a single GC.
 
-        GCs are seeded from naive bcells, and the naive bcells divide naive_bcells_num_divide
+        GCs are seeded from naive bcells, and the naive bcells divide naive_bcells_n_divide
         times. If memory_to_gc_fraction is set, then memory cells are also seeding the GC.
 
         Daughter cells are generated based on effective Ag concentration and current tcells,
@@ -130,7 +132,7 @@ class Simulation(Parameters):
             gc_idx: index of the GC
         """
         seeding_bcells = self.naive_bcells[gc_idx].get_seeding_bcells(self.ag_eff_conc)
-        for _ in range(self.naive_bcells_num_divide):
+        for _ in range(self.naive_bcells_n_divide):
             seeding_bcells.add_bcells(seeding_bcells)
         self.gc_bcells[gc_idx].add_bcells(seeding_bcells)
 
@@ -179,11 +181,11 @@ class Simulation(Parameters):
         Calculate the number of tcells and effective Ag concentration. Run the GCs and EGC.
         Run death phase for all bcell populations. Update the concentrations using plasma cells.
         """
-        self.tcell: float = self.num_tcells_arr[timestep_idx]
+        self.tcell: float = self.n_tcells_arr[timestep_idx]
         masked_ag_conc = self.concentrations.get_masked_ag_conc()
         self.ag_eff_conc = np.array([self.ag_eff, 1]) @ masked_ag_conc
 
-        for gc_idx in range(self.num_gc):
+        for gc_idx in range(self.n_gc):
             self.run_gc(gc_idx)
 
         if self.current_time < self.egc_stop_time:
@@ -193,7 +195,7 @@ class Simulation(Parameters):
         # set_birth_rates not necessary here if all bcells have the same birth rate. 
         # also if gc/egc derived cells have different death rates that needs to be adjusted here
         self.set_death_rates()
-        for gc_idx in range(self.num_gc):
+        for gc_idx in range(self.n_gc):
             self.gc_bcells[gc_idx].kill()
         self.egc_bcells.kill()
         self.plasma_bcells.kill()
@@ -206,10 +208,33 @@ class Simulation(Parameters):
 
     def read_checkpoint(self) -> None:
         """Read previous simulation checkpoint, reset GC bcells, and set EGC bcells to memory cells."""
-        self: Self = utils.read_pickle(self.prev_file_path)
-        for gc_idx in range(self.num_gc):
+        self: Self = utils.read_pickle(self.prev_pickle_path)
+        for gc_idx in range(self.n_gc):
             self.gc_bcells[gc_idx] = Bcells()  # XXX To be like Leerang's code, I think we should reset the GC bcells and add the non-egc bcells here
         self.egc_bcells = self.memory_bcells  # XXX make changes so we can control what fraction of memory cells become egc bcells.
+
+
+    def check_overwrite(self, data: Any, file_path: str) -> None:
+        """Write file depending on if file exists and if overwriting is allowed.
+        
+        Args:
+            data: the data to write to file.
+            file_path: the path to the file.
+        """
+        write_fn, file_type = {
+            'pkl': (utils.write_pickle, 'pickle'),
+            'json': (utils.write_json, 'parameters')
+        }[file_path.split('.')[-1]]
+
+        if os.path.exists(file_path):
+            if self.overwrite:
+                print(f'Warning: {file_type} file already exists. Overwriting.')
+                write_fn(data, file_path)
+            else:
+                print(f'{file_type} file already exists. Not overwriting.')
+        else:
+            write_fn(data, file_path)
+
 
 
     def run(self) -> None:
@@ -227,12 +252,13 @@ class Simulation(Parameters):
         else:
             self.create_populations()
 
-        for timestep_idx in range(self.num_timesteps):
+        for timestep_idx in range(self.n_timesteps):
             self.current_time = timestep_idx * self.dt
             self.run_timestep(timestep_idx)
 
-        utils.write_pickle(self, self.file_path)
-        self.write_param_json()
+        # Write files
+        self.check_overwrite(self, self.pickle_path)
+        self.check_overwrite(self.get_parameter_dict(), self.parameter_json_path)
 
 
 

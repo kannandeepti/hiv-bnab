@@ -39,7 +39,7 @@ class Bcells(Parameters):
             'target_epitope',
             'variant_affinities',
             'activated_time',
-            # 'num_mut',
+            # 'n_mut',
             'gc_or_egc_derived'
             # 'mutation_state1',
             # 'mutation_state2',
@@ -50,34 +50,34 @@ class Bcells(Parameters):
         """Initialize bcell field arrays.
         
         Attributes:
-            mutation_state_array: np.ndarray (shape=(num_cell, n_res)) indicating 0
+            mutation_state_array: np.ndarray (shape=(n_cell, n_res)) indicating 0
                 for unmutated residue and 1 for mutated residue.
-            precalculated_dEs: np.ndarray (shape=(num_cell, n_res, n_var)) containing
+            precalculated_dEs: np.ndarray (shape=(n_cell, n_res, n_var)) containing
                 the change in affinity (dE) for a particular variant given a mutation
                 in a residue.
-            lineage: np.ndarray (shape=(num_cell)) containing the lineage of the bcell.
-            target_epitope: np.ndarray (shape=(num_cell)) containing the targeted epitope.
-            variant_affinites: np.ndarray (shape=(num_cell, num_var)) containing the
+            lineage: np.ndarray (shape=(n_cell)) containing the lineage of the bcell.
+            target_epitope: np.ndarray (shape=(n_cell)) containing the targeted epitope.
+            variant_affinites: np.ndarray (shape=(n_cell, n_var)) containing the
                 binding affinity of the bcell with a particular variant.
-            activated_time: np.ndarray (shape=(num_cell)) containing the time the bcell
+            activated_time: np.ndarray (shape=(n_cell)) containing the time the bcell
                 was produced.
-            gc_or_egc_derived: np.ndarray (shape=(num_cell)) containing whether the bcell
+            gc_or_egc_derived: np.ndarray (shape=(n_cell)) containing whether the bcell
                 was derived from the GC or EGC. See utils.DerivedCells for tag values.
         """
         self.mutation_state_array = np.zeros(
             (self.initial_number, self.n_res), dtype=int
-        )                                                                                           # (num_bcell, n_res)
-        self.precalculated_dEs = np.zeros(                                                          # (num_bcell, n_res, n_var)
+        )                                                                                           # (n_bcell, n_res)
+        self.precalculated_dEs = np.zeros(                                                          # (n_bcell, n_res, n_var)
             (self.initial_number, self.n_res, self.n_var)
         )
-        self.lineage = np.zeros(self.initial_number)                                          # (num_bcell), i think 0 indicates empty b cell
-        self.target_epitope = np.zeros(self.initial_number)                                   # (num_bcell)
-        self.variant_affinities = np.zeros((self.initial_number, self.n_var))                   # (num_bcell, num_var)
-        self.activated_time = np.zeros(self.initial_number)                                   # (num_bcell)
-        # self.num_mut = np.zeros(self.initial_number)                                          # (num_bcell) ???
+        self.lineage = np.zeros(self.initial_number)                                          # (n_bcell), i think 0 indicates empty b cell
+        self.target_epitope = np.zeros(self.initial_number)                                   # (n_bcell)
+        self.variant_affinities = np.zeros((self.initial_number, self.n_var))                   # (n_bcell, n_var)
+        self.activated_time = np.zeros(self.initial_number)                                   # (n_bcell)
+        # self.n_mut = np.zeros(self.initial_number)                                          # (n_bcell) ???
         self.gc_or_egc_derived = np.zeros(
             self.initial_number, dtype=int
-        ) + utils.DerivedCells.UNSET.value                                                          # (num_bcell), 1=gc,, 2=egc, unset=0
+        ) + utils.DerivedCells.UNSET.value                                                          # (n_bcell), 1=gc,, 2=egc, unset=0
 
 
     def replace_all_arrays(self, idx: np.ndarray) -> None:
@@ -142,7 +142,7 @@ class Bcells(Parameters):
         to the geometric distribution.
         
         Returns:
-            naive_bcells_arr: np.ndarray (shape=(n_ep, num_class_bins))
+            naive_bcells_arr: np.ndarray (shape=(n_ep, n_class_bins))
         """
         max_classes = np.around(
             np.array([
@@ -155,20 +155,20 @@ class Bcells(Parameters):
 
         for ep in range(self.n_ep):
             if max_classes[ep] > 1:
-                func = lambda x: self.num_naive_precursors - (x ** max_classes[ep] - 1) / (x - 1)
+                func = lambda x: self.n_naive_precursors - (x ** max_classes[ep] - 1) / (x - 1)
                 r[ep] = utils.fsolve_mult(func, guess=1.1)
             else:
-                r[ep] = self.num_naive_precursors
+                r[ep] = self.n_naive_precursors
 
-        naive_bcells_arr = np.zeros(shape=(self.n_ep, self.num_class_bins))
+        naive_bcells_arr = np.zeros(shape=(self.n_ep, self.n_class_bins))
         p = [1-self.p2-self.p3, self.p2, self.p3]
         for ep in range(self.n_ep):
             if max_classes[ep] > 1:
-                naive_bcells_arr[ep, :self.num_class_bins] = p[ep] * r[ep] ** (
-                    max_classes[ep] - (np.arange(self.num_class_bins) + 1)
+                naive_bcells_arr[ep, :self.n_class_bins] = p[ep] * r[ep] ** (
+                    max_classes[ep] - (np.arange(self.n_class_bins) + 1)
                 )
             elif max_classes[ep] == 1:
-                naive_bcells_arr[ep, 0] = p[ep] * self.num_naive_precursors
+                naive_bcells_arr[ep, 0] = p[ep] * self.n_naive_precursors
 
         return naive_bcells_arr
     
@@ -210,12 +210,12 @@ class Bcells(Parameters):
         
         Args:
             conc_array: the effective Ag concentration for the epitope that the bcell
-            is targeting. np.ndarray (shape=(num_cells)).
+            is targeting. np.ndarray (shape=(n_cells)).
             variant_idx: the variant Ag idx that is being used to calculate captured Ag.
 
         Returns:
-            activation_signal: Amount of Ag captured. np.ndarray (shape=(num_cells)).
-            activated: Whether bcell is activated. np.ndarray (shape=(num_cells)).
+            activation_signal: Amount of Ag captured. np.ndarray (shape=(n_cells)).
+            activated: Whether bcell is activated. np.ndarray (shape=(n_cells)).
         """
         conc_term = conc_array / self.C0
         aff_term = 10 ** (self.variant_affinities[:, variant_idx] - self.E0)
@@ -241,14 +241,14 @@ class Bcells(Parameters):
         """From activation signal, calculate tcell help and birth rate.
         
         Args:
-            activation_signal: Amount of Ag captured. np.ndarray (shape=(num_cells)).
-            activated: Whether bcell is activated. np.ndarray (shape=(num_cells)).
+            activation_signal: Amount of Ag captured. np.ndarray (shape=(n_cells)).
+            activated: Whether bcell is activated. np.ndarray (shape=(n_cells)).
             tcell: Current tcell amount.
             birth_rate: Bcell birth rate.
 
         Returns:
             birth_signal: The birth_signal of each bcell, used to calculate which
-                bcells create daughter cells later. np.ndarray (shape=(num_cells)).
+                bcells create daughter cells later. np.ndarray (shape=(n_cells)).
         """
         activated_fitness = activated * activation_signal
         avg_fitness = activated_fitness[activated_fitness > 0].mean()
@@ -266,7 +266,7 @@ class Bcells(Parameters):
             
         Returns:
             incoming_naive: Indices of Bcells that will enter the GC.
-                np.ndarray (shape=(num_cells))
+                np.ndarray (shape=(n_cells))
         """
         conc_array = np.zeros(shape=self.lineage.shape)
         for ep in range(self.n_ep):
@@ -299,7 +299,7 @@ class Bcells(Parameters):
             
         Returns:
             incoming_naive: Indices of Bcells that will undergo birth.
-                np.ndarray (shape=(num_cells))
+                np.ndarray (shape=(n_cells))
         """
         conc_array = np.zeros(shape=self.lineage.shape)
         for ep in range(self.n_ep):

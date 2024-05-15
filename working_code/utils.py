@@ -124,14 +124,14 @@ def fsolve_mult(f: Callable[..., Any], guess: float=1.1):
     """
     max_tries = 2000
     r = scipy.optimize.fsolve(f, guess)
-    num_tries = 0
+    n_tries = 0
     while f(r) > 0.05:
         guess += 0.2
         r = scipy.optimize.fsolve(f, guess)
-        num_tries += 1
+        n_tries += 1
         if guess > 10:
             guess = -10
-        if num_tries > max_tries:
+        if n_tries > max_tries:
             raise ValueError(f'fsolve could not solve in {max_tries} attempts.')
     return r
 
