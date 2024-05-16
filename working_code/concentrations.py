@@ -29,50 +29,68 @@ class Concentrations(Parameters):
             ig_types_arr: Not sure. Involved in matmul with ig_new and ka_new
                 (shape=(n_ig_types, n_ep))
             ag_conc: Concentrations of Ag (shape=(n_ep + 1, n_ag)). 
-                ag_conc[0] corresponds to soluble Ag.
-            ab_conc: Concentrations of Ab (shape=(n_ig_types, n_ep))
+                ag_conc[0] corresponds to total [Ag] (free + bound)
+                ag_conc[i, j] corresponds to [IC] for epitope i on antigen j.
+            ab_conc: Concentrations of free Ab (shape=(n_ig_types, n_ep))
             ab_decay_rates: Decay rates for Ig types. Multiplied with ab_conc.
                 np.ndarray (shape=(n_ig_types, np.newaxis))
-            ab_ka_condense_fn: If there are multiple variant antigens being
-                given at once in the GC, this function determines which Ka to use.
-                Default is to use the mean, but I think Leerang/Melbourne use the
-                WT at index 0.
+            ab_ka_condense_fn: If there is only one antigen in circulation, this function
+                determines which one to use when computing [IC] concentrations. 
+                In this case, the Ka array for ICs just keeps track of epitopes and Ig type.
+                For covid work, Leerang used WT at index 0.
+                For multiple antigens, this function should condense the shape of n_var down to n_ag.
             ab_ka: Kas for antibodies to multiple variants.
                 (shape=(n_var, n_ig_types, n_ep))
+                Keeping track of affinities to n_var > n_ag, but there are only n_ag in circulation.
         """
         super().__init__()
-
+        #TODO: add a bnAb class (on a separate branch for HIV project)
         self.ig_types = ['IgM', 'IgG-GCPC', 'IgG-EGCPC']
         self.n_ig_types = len(self.ig_types)
         self.ig_types_arr = np.array([[0, 0, 0], [1, 0 ,0], [0, 1, 1]])
 
-        self.ag_conc = np.zeros((self.n_ep + 1, self.n_ag))
-        self.ab_conc = np.zeros((self.n_ig_types, self.n_ep))
+        self.ag_conc = np.zeros((self.n_ep + 1, self.n_ag)) #first row is TOTAL antigen concentration
+        self.ab_conc = np.zeros((self.n_ig_types, self.n_ep)) #FREE antibody concentration
         self.ab_conc[0] = self.igm0 / self.n_ep
-        self.ab_decay_rates = np.array([0, self.d_igm, self.d_igg])[:, np.newaxis]
+        #BUGFIX : shouldnt IgM decay rate be d_igm? was previously 0
+        self.ab_decay_rates = np.array([self.d_igm, self.d_igg, self.d_igg])[:, np.newaxis]
 
+        # By default, take the first n_ag rows of Ka to be the n_ag variants in circulation
         self.ab_ka_condense_fn: Callable[
             [np.ndarray], np.ndarray
-        ] = lambda x: x[:self.n_ag].mean(axis=0)  # Take average over all n_ag variants for ab_ka
+        ] = lambda x: x[:self.n_ag]  
 
         self.ab_ka = np.ones(
             (self.n_var, self.n_ig_types, self.n_ep)
         ) * self.initial_ka
 
+    def set_ab_ka_condense_fn(
+            self, 
+            fn : Callable[[np.ndarray], np.ndarray]
+    ):
+        try:
+            output = fn(self.ab_ka)
+        except Exception as e:
+            print("User supplied ka_condense_fn has an error")
+            raise(e)
+        
+        if len(output.shape) != (self.n_ag, self.n_ig_types, self.n_ep):
+            raise ValueError("condense fn should return an array of shape (n_ag, n_ig_types, n_ep)")
+        self.ab_ka_condense_fn = fn
     
     def get_IC(
         self, 
-        L: np.ndarray | float, 
-        R: np.ndarray, 
+        ig_conc: np.ndarray | float, 
+        ag_conc: np.ndarray, 
         avg_ka: np.ndarray | float, 
         fail_if_nan: bool=False
     ) -> np.ndarray:
         """Calculate the Ag-Ab IC concentration.
 
         Args:
-            L: Ab or 'ligand', either a np.ndarray (shape=(n_ep)) or
+            ig_conc: Ab or 'ligand', either a np.ndarray (shape=(n_ep)) or
                 float.
-            R: Ag or 'receptor', nd.ndarray (shape=(n_ag))
+            ag_conc: Ag or 'receptor', nd.ndarray (shape=(n_ag))
             avg_ka: Average Ka, np.ndarray (shape=(n_ep)) or float.
             fail_if_nan: If IC conc is not real, then raise ValueError.
                 Otherwise, set nan values to 0.
@@ -80,8 +98,8 @@ class Concentrations(Parameters):
         Returns:
             IC: IC concentrations (shape=(n_ep, n_ag) or (n_ag))
         """
-        term1 = R + L + 1/avg_ka
-        term2 = np.emath.sqrt(np.square(term1) - 4 * R * L)
+        term1 = ag_conc + ig_conc + 1/avg_ka
+        term2 = np.emath.sqrt(np.square(term1) - 4 * ag_conc * ig_conc)
         IC = (term1 - term2) / 2
 
         if fail_if_nan:
@@ -90,7 +108,6 @@ class Concentrations(Parameters):
         else:
             IC = np.nan_to_num(IC, 0)
         return IC
-
 
     def get_masked_ag_conc(self) -> np.ndarray:
         """Get Ag concentration after applying epitope masking.
@@ -142,31 +159,35 @@ class Concentrations(Parameters):
 
     def get_deposit_rates(
         self, 
-        L: float, 
-        R: np.ndarray, 
-        avg_ka: float
+        ig_conc: float, 
+        ag_conc: np.ndarray, 
+        avg_ka: np.ndarray
     ) -> np.ndarray:
         """Get the FDC-deposit rates.
         
         Args:
-            L: Ab or 'ligand', float in this case.
-            R: Ag or 'receptor', nd.ndarray (shape=(n_ag))
-            avg_ka: Average Ka, float in this case.
+            ig_conc: total free Ab or 'ligand' concentration, float in this case.
+            ag_conc: total Ag or 'receptor' concentration, nd.ndarray (shape=(n_ag))
+            avg_ka: Average Ka to a particular antigen (shape=(n_ag,))
 
         Returns:
             deposit_rates: The FDC-deposit rates. np.ndarray
                 (shape=(n_ag, n_ig_types, n_ep)).
         """
-        if L > 0 and R.sum() > 0:
-            IC_soluble = self.get_IC(
-                L, R, avg_ka, fail_if_nan=True
-            )[:, np.newaxis, np.newaxis] # shape n_ag
-            denom = (self.ab_ka_condense_fn(self.ab_ka) * self.ab_conc).sum()
+        if ig_conc > 0 and ag_conc.sum() > 0:
+            IC_total_per_antigen = ag_conc / (1. + 1./(avg_ka * ig_conc)) #(n_ag,)
+            if np.any(~np.isreal(IC_total_per_antigen)) or np.any(np.isnan(IC_total_per_antigen)):
+                raise ValueError('Imaginary or nan for IC conc')
+            IC_total_per_antigen = IC_total_per_antigen.reshape((self.n_ag, 1, 1))
+            #after condensing, result is (n_ag, n_ig_types, n_ep), but ab_conc is (n_ig_types, n_ep)
+            #denom should be shape (n_ag, 1, 1)
+            denom = (self.ab_ka_condense_fn(self.ab_ka) * self.ab_conc[np.newaxis, :, :]).sum(axis=(1, 2))
+            denom = denom.reshape((self.n_ag, 1, 1))
             deposit_rates = (
                 self.deposit_rate * 
-                IC_soluble * 
+                IC_total_per_antigen * 
                 self.ab_ka_condense_fn(self.ab_ka) * 
-                self.ab_conc
+                self.ab_conc[np.newaxis, :, :]
              ) / denom  # shape (n_ag, n_ig_types, n_ep)
         else:
             deposit_rates = np.zeros(
@@ -195,13 +216,13 @@ class Concentrations(Parameters):
             ab_decay: Rescaled Ab decay rates.
                 np.ndarray (shape=(n_ig_types, n_ep))
         """
+        #Note: I removed the deposit_rates from this since ab_conc is now FREE Ig
         ab_decay = (
-            -deposit_rates.sum(axis=0) - 
             self.ab_decay_rates * self.ab_conc + 
             self.epsilon
-         ) # (3, n_ep)
-        rescale_idx = self.ab_conc < -ab_decay * self.dt # (3, n_ep)
-        rescale_factor = self.ab_conc / (-ab_decay * self.dt) # (3, n_ep)
+         ) # (n_ig_types n_ep)
+        rescale_idx = self.ab_conc < -ab_decay * self.dt # (n_ig_types, n_ep)
+        rescale_factor = self.ab_conc / (-ab_decay * self.dt) # (n_ig_types, n_ep)
         if rescale_idx.flatten().sum():
             import pdb; pdb.set_trace()
             print(f'Ab reaction rates rescaled. Time={current_time:.2f}')
@@ -235,6 +256,8 @@ class Concentrations(Parameters):
 
         """
         ag_decay = (
+            #Note: if ag_conc[0] is total Ag concentration, then this first term is wrong
+            #should be divided by 1 + sum(ab_ka * ab_conc)...
             -self.d_ag * self.ag_conc[ConcentrationIdx.SOLUBLE.value] -
             deposit_rates.sum(axis=(1,2)) + 
             self.epsilon  # (n_ag)
@@ -254,10 +277,11 @@ class Concentrations(Parameters):
             ag_decay[rescale_idx] *= rescale_factor  # (n_ag)
             deposit_rates_rescaled = copy.deepcopy(deposit_rates)
             deposit_rates_rescaled[rescale_idx] *= rescale_factor  #(shape=(n_ag, n_ig_types, n_ep))
-            ab_decay += (
-                deposit_rates.sum(axis=0) - 
-                deposit_rates_rescaled.sum(axis=0)  # (3, n_ep)
-            )
+            #XXX not sure what rescaling does, but ab_decay now independent of deposit_rates
+            #ab_decay += (
+            #    deposit_rates.sum(axis=0) - 
+            #    deposit_rates_rescaled.sum(axis=0)  # (3, n_ep)
+            #)
             deposit_rates = deposit_rates_rescaled
         return deposit_rates, ag_decay, ab_decay
     
@@ -278,6 +302,7 @@ class Concentrations(Parameters):
             ab_decay: Ab decay rates. np.ndarray (shape=(n_ig_types, n_ep))
             current_time: Current simulation time from Simulation class.
         """
+        #decay of soluble antigen (n_ag,)
         self.ag_conc[ConcentrationIdx.SOLUBLE.value] += (
             ag_decay * self.dt + self.F0 * 
             np.exp(self.k * current_time) * (current_time < self.T * self.dt)
@@ -411,9 +436,11 @@ class Concentrations(Parameters):
         soluble_ag_conc = self.ag_conc[ConcentrationIdx.SOLUBLE.value] # shape n_ag
         total_ab_conc = self.ab_conc.sum()  # float
 
+        #average affinity across all antibody types / eptiopes
+        #this needs to be shap (n_ag,)
         avg_ka = (
-            self.ab_ka_condense_fn(self.ab_ka) * self.ab_conc
-        ).sum() / total_ab_conc  # float
+            self.ab_ka * self.ab_conc[np.newaxis, :, :]
+        ).sum(axis=(1,2)) / total_ab_conc  # (n_ag, )
 
         deposit_rates = self.get_deposit_rates(
             total_ab_conc, soluble_ag_conc, avg_ka
