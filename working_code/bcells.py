@@ -454,10 +454,27 @@ class Bcells(Parameters):
         nonexported_bcells.tag_gc_or_egc_derived(tag_value)
 
         return memory_bcells, plasma_bcells, nonexported_bcells
+    
 
+    def get_num_above_aff(self) -> np.ndarray:
+        """Get the number of bcells with affinities above thresholds.
+        
+        Thresholds are specified in affinities_history. Numbers are also
+        specific to each targeted epitope and each variant Ag.
 
-
-
-
-
+        Returns:
+            num_above_aff: Number of bcells with affinity above thresholds.
+                np.ndarray (shape=(n_var, n_ep, n_affinities))
+        """
+        num_above_aff = np.zeros(
+            (self.n_var, self.n_ep, len(self.affinities_history))
+        )
+        for aff_idx, affinity_threshold in enumerate(self.affinities_history):
+            for ep in range(self.n_ep):
+                variant_affinities = self.variant_affinities[
+                    self.target_epitope == ep
+                ]
+                n_cells = (variant_affinities > affinity_threshold).sum(axis=0)
+                num_above_aff[:, ep, aff_idx] = n_cells
+        return num_above_aff
 

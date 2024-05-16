@@ -13,14 +13,16 @@ class Parameters:
     """
 
     overwrite: bool = True
-    """Whether to overwrite existing files."""
+    """
+    Whether to overwrite existing files.
+    """
 
     seed: int = 0
     """
     The random seed for reproducibility.
     """
     
-    dt: float = 0.05 # XXX
+    dt: float = 0.01 # XXX
     """
     The time step for simulations, in days.
     """
@@ -156,7 +158,9 @@ class Parameters:
     fitness_array: tuple[float] = tuple(
         np.linspace(E0, E0 + 2, n_class_bins)
     )
-    """6 to 8 with interval of 0.2"""
+    """
+    6 to 8 with interval of 0.2.
+    """
 
     class_size = fitness_array[1] - fitness_array[0]
     """
@@ -171,6 +175,11 @@ class Parameters:
     max_affinity: float = 16.
     """
     The maximum affinity.
+    """
+
+    affinities_history: tuple[float] = (0., 6., 7., 8., 9.)
+    """
+    Affinity thresholds for counting cells for the simulation history.
     """
 
     activation_condense_fn: Callable[[np.ndarray], np.ndarray] = lambda x: x.sum(axis=1)
@@ -188,7 +197,9 @@ class Parameters:
     naive_target_fractions: tuple = (0.8, 0.15, 0.05)
     assert np.isclose(sum(naive_target_fractions), 1)
     assert len(naive_target_fractions) == n_ep
-    """Fractions of naive cells targeting each epitope."""
+    """
+    Fractions of naive cells targeting each epitope.
+    """
     
     w1: float = 0
     """
@@ -209,6 +220,16 @@ class Parameters:
     assert masking in [0, 1]
     """
     Whether to use epitope masking.
+    """
+
+    ig_types: tuple[str] = ('IgM', 'IgG-GCPC', 'IgG-EGCPC')
+    """
+    Types of Ig.
+    """
+    
+    n_ig_types: int = len(ig_types)
+    """
+    Number of types of Ig.
     """
     
     initial_ka: float = 1e-3
@@ -263,7 +284,7 @@ class Parameters:
     
     max_ka: float = 1e11
     """
-    Maximum ka value.
+    Maximum ka value allowed (nM-1).
     """
     
     production: int = 1
@@ -278,12 +299,27 @@ class Parameters:
     
     tmax: int = 360
     """
-    . XXX
+    Maximum time allowed (days).
     """
     
     n_tmax: int = 1200
     """
     . XXX
+    """
+
+    tspan_dt: float = 0.25
+    """
+    Timestep to save results in history (days).
+    """
+
+    history_times: tuple = tuple(np.arange(0,  tmax + tspan_dt, tspan_dt))
+    """
+    Timepoints to save results in history (days).
+    """
+
+    n_history_timepoints: int = len(history_times)
+    """
+    Number of history timepoints.
     """
     
     d_Tfh: float = 0.01
@@ -334,10 +370,14 @@ class Parameters:
     """XXX"""
 
     dose_time: float = 0.
-    """Time to give the vaccine dose."""
+    """
+    Time to give the vaccine dose.
+    """
 
     dose: float = ag0
-    """Concentration of Ag in the dose."""
+    """
+    Concentration of Ag in the dose.
+    """
 
     egc_stop_time: float = 6.
     """
@@ -345,7 +385,9 @@ class Parameters:
     """
 
     n_timesteps = int(vax_timing[vax_idx] / dt)
-    """Number of timesteps for this simulation."""
+    """
+    Number of timesteps for this simulation.
+    """
     
     ################################################################
     # Properties are not included when calling dataclasses.fields.
@@ -361,7 +403,12 @@ class Parameters:
 
     @property
     def n_tcells_arr(self) -> np.ndarray:
-        """Calculate tcell amounts over time."""
+        """Calculate tcell amounts over time spaced dt apart.
+        
+        Returns:
+            n_tcells_arr: Number of tcells over time.
+                np.ndarray (shape=tmax/dt)
+        """
         tspan = np.arange(0, self.tmax + self.dt, self.dt)
         n_tcells_arr = np.zeros(shape=tspan.shape)
 

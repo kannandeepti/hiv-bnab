@@ -45,12 +45,9 @@ class Concentrations(Parameters):
         """
         super().__init__()
         #TODO: add a bnAb class (on a separate branch for HIV project)
-        self.ig_types = ['IgM', 'IgG-GCPC', 'IgG-EGCPC']
-        self.n_ig_types = len(self.ig_types)
         self.ig_types_arr = np.array([[0, 0, 0], [1, 0 ,0], [0, 1, 1]])
-
-        self.ag_conc = np.zeros((self.n_ep + 1, self.n_ag)) #first row is TOTAL antigen concentration
-        self.ab_conc = np.zeros((self.n_ig_types, self.n_ep)) #FREE antibody concentration
+        self.ag_conc = np.zeros((self.n_ep + 1, self.n_ag))
+        self.ab_conc = np.zeros((self.n_ig_types, self.n_ep))
         self.ab_conc[0] = self.igm0 / self.n_ep
         #BUGFIX : shouldnt IgM decay rate be d_igm? was previously 0
         self.ab_decay_rates = np.array([self.d_igm, self.d_igg, self.d_igg])[:, np.newaxis]
@@ -224,7 +221,6 @@ class Concentrations(Parameters):
         rescale_idx = self.ab_conc < -ab_decay * self.dt # (n_ig_types, n_ep)
         rescale_factor = self.ab_conc / (-ab_decay * self.dt) # (n_ig_types, n_ep)
         if rescale_idx.flatten().sum():
-            import pdb; pdb.set_trace()
             print(f'Ab reaction rates rescaled. Time={current_time:.2f}')
             deposit_rates[:, rescale_idx] *= rescale_factor[rescale_idx]
             ab_decay[rescale_idx] *= rescale_factor[rescale_idx]
