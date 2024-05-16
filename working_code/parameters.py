@@ -35,7 +35,7 @@ class Parameters:
     The number of germinal centers.
     """
     
-    initial_bcell_number: int = 1
+    initial_bcell_number: int = 0
     """
     The initial number of B cells.
     """
@@ -187,6 +187,7 @@ class Parameters:
 
     naive_target_fractions: tuple = (0.8, 0.15, 0.05)
     assert np.isclose(sum(naive_target_fractions), 1)
+    assert len(naive_target_fractions) == n_ep
     """Fractions of naive cells targeting each epitope."""
     
     w1: float = 0
@@ -287,7 +288,7 @@ class Parameters:
     
     d_Tfh: float = 0.01
     """
-    Rate of change of Tfh.
+    Rate of change of Tfh. XXX
     """
     
     r_igm: float = igm0 * production / n_gc

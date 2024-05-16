@@ -63,17 +63,17 @@ class Bcells(Parameters):
         """
         self.mutation_state_array = np.zeros(
             (self.initial_number, self.n_res), dtype=int
-        )                                                                                           # (n_bcell, n_res)
-        self.precalculated_dEs = np.zeros(                                                          # (n_bcell, n_res, n_var)
+        )                                                                                 
+        self.precalculated_dEs = np.zeros(                                              
             (self.initial_number, self.n_res, self.n_var)
         )
-        self.lineage = np.zeros(self.initial_number, dtype=int)                                          # (n_bcell), i think 0 indicates empty b cell
-        self.target_epitope = np.zeros(self.initial_number, dtype=int)                                   # (n_bcell)
-        self.variant_affinities = np.zeros((self.initial_number, self.n_var))                   # (n_bcell, n_var)
-        self.activated_time = np.zeros(self.initial_number)                                   # (n_bcell)
+        self.lineage = np.zeros(self.initial_number, dtype=int)                   
+        self.target_epitope = np.zeros(self.initial_number, dtype=int)                              
+        self.variant_affinities = np.zeros((self.initial_number, self.n_var))             
+        self.activated_time = np.zeros(self.initial_number)                             
         self.gc_or_egc_derived = np.zeros(
             self.initial_number, dtype=int
-        ) + utils.DerivedCells.UNSET.value                                                          # (n_bcell), 1=gc,, 2=egc, unset=0
+        ) + utils.DerivedCells.UNSET.value                                        
 
 
     def replace_all_arrays(self, idx: np.ndarray) -> None:
@@ -305,8 +305,11 @@ class Bcells(Parameters):
             new_bcells: the copies of new Bcells.
         """
         new_bcells = copy.deepcopy(self)
-        if new_bcells.lineage.size == 0:  # Avoid error in replace_all_arrays XXX
+
+        # Avoid error in replace_all_arrays
+        if new_bcells.lineage.size == 0:
             return new_bcells
+        
         new_bcells.replace_all_arrays(idx)
         return new_bcells
     
