@@ -20,7 +20,7 @@ class Parameters:
     The random seed for reproducibility.
     """
     
-    dt: float = 0.01
+    dt: float = 0.05 # XXX
     """
     The time step for simulations, in days.
     """

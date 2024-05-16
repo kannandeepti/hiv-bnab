@@ -299,8 +299,8 @@ class Simulation(Parameters):
             self.current_time = timestep_idx * self.dt
 
             current_time = time.perf_counter()
-            elapsed_time = f'{current_time - start_time:.3f}'
-            print(f'{self.current_time = }', f'{elapsed_time = }') # XXX
+            elapsed_time = current_time - start_time
+            print(f'{self.current_time = }', f'{elapsed_time:.1f}') # XXX
             
             self.run_timestep(timestep_idx)
 

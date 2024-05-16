@@ -57,7 +57,7 @@ class Concentrations(Parameters):
 
         self.ab_ka = np.ones(
             (self.n_var, self.n_ig_types, self.n_ep)
-        ) * self.initial_ka  # think this needs to be also n_var
+        ) * self.initial_ka
 
     
     def get_IC(
@@ -196,13 +196,14 @@ class Concentrations(Parameters):
                 np.ndarray (shape=(n_ig_types, n_ep))
         """
         ab_decay = (
-            -deposit_rates.sum(axis=2) - 
+            -deposit_rates.sum(axis=0) - 
             self.ab_decay_rates * self.ab_conc + 
             self.epsilon
          ) # (3, n_ep)
         rescale_idx = self.ab_conc < -ab_decay * self.dt # (3, n_ep)
         rescale_factor = self.ab_conc / (-ab_decay * self.dt) # (3, n_ep)
         if rescale_idx.flatten().sum():
+            import pdb; pdb.set_trace()
             print(f'Ab reaction rates rescaled. Time={current_time:.2f}')
             deposit_rates[:, rescale_idx] *= rescale_factor[rescale_idx]
             ab_decay[rescale_idx] *= rescale_factor[rescale_idx]
@@ -252,7 +253,7 @@ class Concentrations(Parameters):
             print(f'Ag reaction rates rescaled. Time={current_time:.2f}')
             ag_decay[rescale_idx] *= rescale_factor  # (n_ag)
             deposit_rates_rescaled = copy.deepcopy(deposit_rates)
-            deposit_rates_rescaled[:, :, rescale_idx] *= rescale_factor  #(shape=(n_ag, n_ig_types, n_ep))
+            deposit_rates_rescaled[rescale_idx] *= rescale_factor  #(shape=(n_ag, n_ig_types, n_ep))
             ab_decay += (
                 deposit_rates.sum(axis=0) - 
                 deposit_rates_rescaled.sum(axis=0)  # (3, n_ep)
