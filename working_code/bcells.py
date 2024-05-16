@@ -67,8 +67,8 @@ class Bcells(Parameters):
         self.precalculated_dEs = np.zeros(                                                          # (n_bcell, n_res, n_var)
             (self.initial_number, self.n_res, self.n_var)
         )
-        self.lineage = np.zeros(self.initial_number)                                          # (n_bcell), i think 0 indicates empty b cell
-        self.target_epitope = np.zeros(self.initial_number)                                   # (n_bcell)
+        self.lineage = np.zeros(self.initial_number, dtype=int)                                          # (n_bcell), i think 0 indicates empty b cell
+        self.target_epitope = np.zeros(self.initial_number, dtype=int)                                   # (n_bcell)
         self.variant_affinities = np.zeros((self.initial_number, self.n_var))                   # (n_bcell, n_var)
         self.activated_time = np.zeros(self.initial_number)                                   # (n_bcell)
         self.gc_or_egc_derived = np.zeros(
@@ -104,11 +104,10 @@ class Bcells(Parameters):
             bcells: the other Bcell population.
         """
         for array_name in self.array_names:
-            new_array = np.concatenate(
+            new_array = np.concatenate([
                 getattr(self, array_name), 
                 getattr(bcells, array_name),
-                axis=0
-            )
+            ], axis=0)
             setattr(self, array_name, new_array)
 
 
@@ -122,51 +121,6 @@ class Bcells(Parameters):
         self.gc_or_egc_derived = np.zeros(
             shape=self.lineage.shape, dtype=int
         ) + tag_value
-    
-
-    def get_naive_bcells_arr(self) -> np.ndarray:
-        """Get number of naive B cells in each fitness class.
-
-        Fitness class refers to the bins for affinities that Bcells start with.
-        For example, the first bin is between affinities of 6 and 6.2, the second bin
-        is between affinities of 6.2 and 6.4, etc. until 7.8 to 8. Between 6 and 8
-        with widths of 0.2, there are 11 such bins.
-
-        We wish to calculate how many naive bcells with affinities in each bin and
-        targeting each epitope will be created. Those numbers are stored in
-        naive_bcells_arr. Higher affinities will have fewer numbers according
-        to the geometric distribution.
-        
-        Returns:
-            naive_bcells_arr: np.ndarray (shape=(n_ep, n_class_bins))
-        """
-        max_classes = np.around(
-            np.array([
-                self.E1h - self.E0,
-                self.E1h - self.dE12 - self.E0, 
-                self.E1h - self.dE13 - self.E0
-            ]) / self.class_size
-        ) + 1
-        r = np.zeros(self.n_ep)  # slopes of geometric distribution
-
-        for ep in range(self.n_ep):
-            if max_classes[ep] > 1:
-                func = lambda x: self.n_naive_precursors - (x ** max_classes[ep] - 1) / (x - 1)
-                r[ep] = utils.fsolve_mult(func, guess=1.1)
-            else:
-                r[ep] = self.n_naive_precursors
-
-        naive_bcells_arr = np.zeros(shape=(self.n_ep, self.n_class_bins))
-        p = [1-self.p2-self.p3, self.p2, self.p3]
-        for ep in range(self.n_ep):
-            if max_classes[ep] > 1:
-                naive_bcells_arr[ep, :self.n_class_bins] = p[ep] * r[ep] ** (
-                    max_classes[ep] - (np.arange(self.n_class_bins) + 1)
-                )
-            elif max_classes[ep] == 1:
-                naive_bcells_arr[ep, 0] = p[ep] * self.n_naive_precursors
-
-        return naive_bcells_arr
     
 
     def get_dE(
@@ -183,30 +137,25 @@ class Bcells(Parameters):
             ep: Epitope
 
         Returns:
-            dE affinity change values: np.ndarray (shape=(len(idx_new)-len(idx))).
+            dE: affinity change values
+                np.ndarray (shape=(len(idx_new)-len(idx))*n_res, n_var).
         """
         mu = np.zeros(self.n_var)
         sigma = self.mutation_pdf[1] ** 2 * self.sigma[ep]
         num = (idx_new - idx) * self.n_res
         X = self.mutation_pdf[0] + np.random.multivariate_normal(mu, sigma, num)
-        dE = np.log10(np.exp(1)) * (np.exp(X) - self.mutation_pdf[2])
+        dE = -np.log10(np.exp(1)) * (np.exp(X) - self.mutation_pdf[2])
         return dE
 
     
     def get_activation(
-        self, conc_array: np.ndarray, variant_idx: int
+        self, conc_array: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray]:
         """From concentration and affinities, calculate activation signal and activation.
-
-        # XXX I think calculation would need to change so that Bcells are encountering all
-        n_ag variants. (Note n_ag not n_var because not all variants are present in GC)
-
-        # XXX this can probably be done by removing [:, variant_idx] and doing
-        activation_signal[:, :self.n_ag].mean(axis=1)
         
         Args:
             conc_array: the effective Ag concentration for the epitope that the bcell
-            is targeting. np.ndarray (shape=(n_cells)).
+            is targeting. np.ndarray (shape=(n_cells, n_ag)).
             variant_idx: the variant Ag idx that is being used to calculate captured Ag.
 
         Returns:
@@ -214,7 +163,7 @@ class Bcells(Parameters):
             activated: Whether bcell is activated. np.ndarray (shape=(n_cells)).
         """
         conc_term = conc_array / self.C0
-        aff_term = 10 ** (self.variant_affinities[:, variant_idx] - self.E0)
+        aff_term = 10 ** (self.variant_affinities[:, :self.n_ag] - self.E0)
         activation_signal = (conc_term * aff_term) ** self.w2
 
         if self.w1 > 0:  # Alternative Ag capture model
@@ -222,6 +171,7 @@ class Bcells(Parameters):
             denom = self.w1 + activation_signal
             activation_signal = num / denom
 
+        activation_signal = self.activation_condense_fn(activation_signal)
         min_arr = np.minimum(activation_signal, 1)
         activated = min_arr > np.random.uniform(size=activation_signal.shape)
         return activation_signal, activated
@@ -258,19 +208,22 @@ class Bcells(Parameters):
         
         Args:
             conc: Effective Ag concentration for each epitope.
-                np.ndarray (shape=(n_ep))   # XXX check that not (1,n_ep)
+                np.ndarray (shape=(n_ep, n_ag))
             
         Returns:
             incoming_naive: Indices of Bcells that will enter the GC.
                 np.ndarray (shape=(n_cells))
         """
-        conc_array = np.zeros(shape=self.lineage.shape)
+        conc_array = np.zeros(shape=(self.lineage.size, self.n_ag))
         for ep in range(self.n_ep):
             matching_epitope = self.target_epitope == ep
-            conc_array += conc[ep] * matching_epitope * (self.activated_time == 0)
+            conc_array += (
+                conc[ep] * 
+                matching_epitope[:, np.newaxis] * 
+                (self.activated_time == 0)[:, np.newaxis]
+            )
 
-        ## assuming WT at ind 0 is the correct variant to use XXX
-        activation_signal, activated = self.get_activation(conc_array, 0)
+        activation_signal, activated = self.get_activation(conc_array)
     
         if activated.sum(): # at least one B cell is intrinsically activated
             lambda_ = self.get_birth_signal(
@@ -290,19 +243,18 @@ class Bcells(Parameters):
         
         Args:
             conc: Effective Ag concentration for each epitope.
-                np.ndarray (shape=(n_ep))   # XXX check that not (1,n_ep)
+                np.ndarray (shape=(n_ep, n_ag))
             tcell: Current tcell amount.
             
         Returns:
             incoming_naive: Indices of Bcells that will undergo birth.
                 np.ndarray (shape=(n_cells))
         """
-        conc_array = np.zeros(shape=self.lineage.shape)
+        conc_array = np.zeros(shape=(self.lineage.size, self.n_ag))
         for ep in range(self.n_ep):
-            conc_array += conc[ep] * (self.target_epitope == ep)
+            conc_array += conc[ep] * (self.target_epitope == ep)[:, np.newaxis]
 
-        ## assuming WT at ind 0 is the correct variant to use XXX
-        activation_signal, activated = self.get_activation(conc_array, 0)
+        activation_signal, activated = self.get_activation(conc_array)
 
         if activated.sum(): # at least one B cell is intrinsically activated
             beta = self.get_birth_signal(
@@ -325,9 +277,8 @@ class Bcells(Parameters):
             death_idx: Indices of Bcells that will die.
         """
         death_idx = np.zeros(self.lineage.shape).astype(bool)
-        live = self.lineage != 0
-        killed = np.random.uniform(size=self.lineage) < self.death_rate * self.dt
-        death_idx = np.nonzero(live & killed)[0]
+        killed = np.random.uniform(size=self.lineage.size) < self.death_rate * self.dt
+        death_idx = np.nonzero(killed)[0]
         return death_idx
     
 
@@ -338,14 +289,13 @@ class Bcells(Parameters):
         reset so that they have 1 bcell. This is to avoid errors when indexing
         an empty array.
         """
-        death_idx = self.get_death_idx(self.death_rate)
+        death_idx = self.get_death_idx()
         self.filter_all_arrays(death_idx)
         if self.lineage.size == 0:
             self.reset_bcell_fields()
 
 
-
-    def get_bcells_from_idx(self, idx) -> Self:
+    def get_bcells_from_idx(self, idx: np.ndarray) -> Self:
         """Get a copy of Bcells selected based on idx.
         
         Args:
@@ -355,6 +305,8 @@ class Bcells(Parameters):
             new_bcells: the copies of new Bcells.
         """
         new_bcells = copy.deepcopy(self)
+        if new_bcells.lineage.size == 0:  # Avoid error in replace_all_arrays XXX
+            return new_bcells
         new_bcells.replace_all_arrays(idx)
         return new_bcells
     
@@ -377,7 +329,7 @@ class Bcells(Parameters):
 
         Args:
             conc: Effective Ag concentration for each epitope.
-                np.ndarray (shape=(n_ep))   # XXX check that not (1,n_ep)
+                np.ndarray (shape=(n_ep, n_ag))
 
         Returns:
             Copies of the seeding Bcells.
@@ -391,7 +343,7 @@ class Bcells(Parameters):
         
         Args:
             conc: Effective Ag concentration for each epitope.
-                np.ndarray (shape=(n_ep))   # XXX check that not (1,n_ep)
+                np.ndarray (shape=(n_ep, n_ag))
             tcell: Current tcell amount.
 
         Returns:
@@ -417,22 +369,26 @@ class Bcells(Parameters):
         original_mutation_states = mutated_bcells.mutation_state_array[
             np.arange(idx.size), mutated_residues
         ]
-        nonmutated_idx = np.where(original_mutation_states == 0)
-        mutated_idx = np.where(original_mutation_states == 1)
-        if nonmutated_idx[0].size + mutated_idx[0].size != idx.size:
+        nonmutated_idx = np.where(original_mutation_states == 0)[0]
+        mutated_idx = np.where(original_mutation_states == 1)[0]
+        residues_nonmutated = mutated_residues[nonmutated_idx]
+        residues_mutated = mutated_residues[mutated_idx]
+
+        if nonmutated_idx.size + mutated_idx.size != idx.size:
             raise ValueError('Mutation state array may contain nonbinary values.')
         
         # Invert values in mutation_state_array
-        mutated_bcells.mutation_state_array[nonmutated_idx, mutated_residues] += 1
-        mutated_bcells.mutation_state_array[mutated_idx, mutated_residues] -= 1
+        mutated_bcells.mutation_state_array[nonmutated_idx, residues_nonmutated] += 1
+        mutated_bcells.mutation_state_array[mutated_idx, residues_mutated] -= 1
 
         # Adjust affinities
-        mutated_bcells.variant_affinities += mutated_bcells.precalculated_dEs[
-            nonmutated_idx, mutated_residues, :
-        ]
-        mutated_bcells.variant_affinities -= mutated_bcells.precalculated_dEs[
-            mutated_idx, mutated_residues, :
-        ]
+        mutated_bcells.variant_affinities[
+            nonmutated_idx
+        ] += mutated_bcells.precalculated_dEs[nonmutated_idx, residues_nonmutated]
+
+        mutated_bcells.variant_affinities[
+            mutated_idx
+        ] -= mutated_bcells.precalculated_dEs[mutated_idx, residues_mutated]
 
         if np.any(mutated_bcells.variant_affinities > self.max_affinity):
             raise ValueError('Affinity impossibly high.')
@@ -442,9 +398,9 @@ class Bcells(Parameters):
 
     def differentiate_bcells(
         self, 
-        tag_value: int, 
         output_prob: float, 
         output_pc_fraction: float,
+        tag_value: int, 
         mutate: bool=True
     ) -> tuple[Self]:
         """Divide bcells into memory, plasma, nonexported_bcells.
@@ -458,9 +414,8 @@ class Bcells(Parameters):
         Returns:
             memory_bcells: Memory bcells that will be exported.
             plasma_bcells: Plasma bcells that will be exported.
-            nonmutated_bcells. Nonexported bcells. Naming is not great because mutated
-                cells can still be included. The name is stuck at nonmutated_bcells because
-                add_bcells is a method of nonmutated_bcells. XXX fix this.
+            nonexported_bcells. Nonexported bcells. Includes mutated bcells if
+                mutate is True.
         
         """
         # Exported indices
@@ -473,27 +428,29 @@ class Bcells(Parameters):
         nonoutput_idx = utils.get_other_idx(birth_bcells_idx, output_idx)
         death_idx = utils.get_sample(nonoutput_idx, p=self.mutation_death_prob)
         nondeath_idx = utils.get_other_idx(nonoutput_idx, death_idx)
-        silent_mutation_idx = utils.get_sample(
-            nondeath_idx, 
-            p=self.mutation_silent_prob * len(nonoutput_idx) / len(nondeath_idx)  # need to increase prob because some cells were already taken out
-        )
+        p = min((
+            self.mutation_silent_prob * 
+            len(nonoutput_idx) / 
+            (len(nondeath_idx) + self.epsilon)
+        ), 1)
+        silent_mutation_idx = utils.get_sample(nondeath_idx, p=p)
         affinity_change_idx = utils.get_other_idx(nondeath_idx, silent_mutation_idx)
 
         # Make the bcells from indices
         memory_bcells = self.get_bcells_from_idx(memory_idx)
         plasma_bcells = self.get_bcells_from_idx(plasma_idx)
-        nonmutated_bcells = self.get_bcells_from_idx(silent_mutation_idx)
+        nonexported_bcells = self.get_bcells_from_idx(silent_mutation_idx)
         
         if mutate:
             mutated_bcells = self.get_mutated_bcells_from_idx(affinity_change_idx)
-            nonmutated_bcells.add_bcells(mutated_bcells)
+            nonexported_bcells.add_bcells(mutated_bcells)
 
         # Tag bcells as GC or EGC-derived
         memory_bcells.tag_gc_or_egc_derived(tag_value)
         plasma_bcells.tag_gc_or_egc_derived(tag_value)
-        nonmutated_bcells.tag_gc_or_egc_derived(tag_value)
+        nonexported_bcells.tag_gc_or_egc_derived(tag_value)
 
-        return memory_bcells, plasma_bcells, nonmutated_bcells
+        return memory_bcells, plasma_bcells, nonexported_bcells
 
 
 

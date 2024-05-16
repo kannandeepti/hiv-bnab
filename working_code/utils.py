@@ -46,7 +46,7 @@ def get_sample(arr1: np.ndarray, p: float) -> np.ndarray:
 
 def get_other_idx(arr1: np.ndarray, arr2: np.ndarray) -> np.ndarray:
     """Get values in arr1 that are not in arr2."""
-    return np.array([i for i in arr1 if i not in arr2])
+    return np.array([i for i in arr1 if i not in arr2], dtype=int)
 
 
 def get_death_rate_from_half_life(half_life: float, dt: float) -> float:

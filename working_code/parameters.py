@@ -1,5 +1,7 @@
 from dataclasses import dataclass
+from typing import Callable
 import numpy as np
+import utils
 
 
 @dataclass
@@ -118,6 +120,12 @@ class Parameters:
     """
     The fraction of memory cells to germinal centers.
     """
+
+    naive_high_affinity_variants: tuple = tuple([0])
+    """
+    Indices of variants that are initially higher affinity. Other variants
+    have affinities set to E0.
+    """
     
     naive_bcells_n_divide: int = 2
     """
@@ -133,22 +141,13 @@ class Parameters:
     """
     Initial energy level.
     """
-    
-    E1h: float = 7
+
+    E1hs: tuple = (7, 6.6, 6.6)
+    assert len(E1hs) == n_ep
     """
-    Energy level. XXX
+    Energy levels for geometric distribution for each epitope.
     """
-    
-    dE12: float = 0.4
-    """
-    Energy level change.
-    """
-    
-    dE13: float = 0.4
-    """
-    Energy level change.
-    """
-    
+
     n_class_bins: int = 11
     """
     The number of class bins.
@@ -173,21 +172,22 @@ class Parameters:
     """
     The maximum affinity.
     """
+
+    activation_condense_fn: Callable[[np.ndarray], np.ndarray] = lambda x: x.sum(axis=1)
+    """
+    Given activations to all Ags, this functions condenses them to a single value.
+
+    For now, do a sum over all Ags.
+    """
     
     C0: float = 0.008
     """
     Value to normalize concentrations.
     """
-    
-    p2: float = 0.15
-    """
-    Parameter value. XXX
-    """
-    
-    p3: float = 0.05
-    """
-    Parameter value. XXX
-    """
+
+    naive_target_fractions: tuple = (0.8, 0.15, 0.05)
+    assert np.isclose(sum(naive_target_fractions), 1)
+    """Fractions of naive cells targeting each epitope."""
     
     w1: float = 0
     """
@@ -351,25 +351,18 @@ class Parameters:
     ################################################################
     
     @property
-    def overlap_matrix(self) -> None:
+    def overlap_matrix(self) -> np.ndarray:
         """Defines the epitope overlap matrix."""
         overlap_matrix = np.eye(self.n_ep)
         # XXX adjust if there is some overlap
         return overlap_matrix
-    
-
-    @property
-    def rho(self) -> list[list[float]]:
-        """Using a property in case it needs to be more complicated later."""
-        return [
-            [0.95, 0.4], 
-            [0.4, 0.95]
-        ]
 
 
     @property
     def n_tcells_arr(self) -> np.ndarray:
+        """Calculate tcell amounts over time."""
         tspan = np.arange(0, self.tmax + self.dt, self.dt)
+        n_tcells_arr = np.zeros(shape=tspan.shape)
 
         if self.tmax <= 14:
             n_tcells_arr = self.n_tmax * tspan / 14
@@ -381,20 +374,74 @@ class Parameters:
 
         return n_tcells_arr
 
-    @property
-    def sigma(self) -> list[np.ndarray]:
-        """Get sigma: covariance matrix per epitope."""# XXX
-        sigma = [[] for _ in self.n_ep]
-        for ep in range(self.n_ep):
-            if ep == 0:  # dom
-                sigma[ep] = np.array([[1, 0.4, 0.4], [0.4, 1, 0], [0.4, 0, 1]]) #XXX
 
-            else:
-                sigma[ep] = np.diag(np.ones(self.n_var))
-                for var in range(self.n_var - 1):  # non-WT var
-                    # each row corresponds to a different epitope
-                    rho = self.rho[ep - 1][var] #XXX
-                    sigma[ep][0][var + 1] = rho
-                    sigma[ep][var + 1][0] = rho
+    @property
+    def sigma(self) -> np.ndarray:
+        """Get sigma: covariance matrix per epitope."""# XXX
+        sigma = np.zeros((self.n_ep, self.n_var, self.n_var))
+        sigma[0] = np.array([
+            [1, 0.4, 0.4],
+            [0.4, 1, 0],
+            [0.4, 0, 1]
+        ])
+        sigma[1] = np.array([
+            [1, 0.95, 0.4],
+            [0.95, 1., 0],
+            [0.4, 0., 1]
+        ])
+        sigma[2] = np.array([
+            [1, 0.4, 0.95],
+            [0.4, 1, 0],
+            [0.95, 0, 1]
+        ])
         return sigma
+    
+
+    @property
+    def naive_bcells_arr(self) -> np.ndarray:
+        """Get number of naive B cells in each fitness class.
+
+        Fitness class refers to the bins for affinities that Bcells start with.
+        For example, the first bin is between affinities of 6 and 6.2, the second bin
+        is between affinities of 6.2 and 6.4, etc. until 7.8 to 8. Between 6 and 8
+        with widths of 0.2, there are 11 such bins.
+
+        We wish to calculate how many naive bcells with affinities in each bin and
+        targeting each epitope will be created. Those numbers are stored in
+        naive_bcells_arr. Higher affinities will have fewer numbers according
+        to the geometric distribution.
+        
+        Returns:
+            naive_bcells_arr: np.ndarray (shape=(n_ep, n_class_bins))
+        """
+        max_classes = np.around((np.array(self.E1hs) - self.E0 )/ self.class_size) + 1
+        geo_dist_slopes = np.zeros(self.n_ep)  # slopes of geometric distribution
+        naive_bcells_arr = np.zeros(shape=(self.n_ep, self.n_class_bins))
+
+        for ep in range(self.n_ep):
+            if max_classes[ep] > 1:
+                func = (
+                    lambda x: self.n_naive_precursors - 
+                    (x ** max_classes[ep] - 1) / (x - 1)
+                )
+                geo_dist_slopes[ep] = utils.fsolve_mult(func, guess=1.1)
+            else:
+                geo_dist_slopes[ep] = self.n_naive_precursors
+
+        for ep in range(self.n_ep):
+
+            if max_classes[ep] > 1:
+                naive_bcells_arr[ep, :self.n_class_bins] = (
+                    self.naive_target_fractions[ep] * 
+                    geo_dist_slopes[ep] ** 
+                    (max_classes[ep] - (np.arange(self.n_class_bins) + 1))
+                )
+
+            elif max_classes[ep] == 1:
+                naive_bcells_arr[ep, 0] = (
+                    self.naive_target_fractions[ep] * 
+                    self.n_naive_precursors
+                )
+
+        return naive_bcells_arr
             

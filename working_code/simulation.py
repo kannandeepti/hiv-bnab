@@ -1,5 +1,6 @@
 import dataclasses
 import os
+import time
 from typing import Self, Any
 import numpy as np
 import utils
@@ -51,23 +52,42 @@ class Simulation(Parameters):
 
 
     def get_naive_bcells(self) -> Bcells:
-        """Create naive bcells."""
-        naive_bcells = Bcells() #XXX
-        naive_bcells_arr = naive_bcells.get_naive_bcells_arr()
-        randu = np.random.uniform(size=naive_bcells_arr.shape)
-        naive_bcells_int = np.floor(naive_bcells_arr + randu).astype(int)
+        """Create naive bcells.
+        
+        The numbers of bcells in each fitness class are read from naive_bcells_arr
+        with stochastic rounding. An empty naive cell population is created with
+        total number from naive_bcells_int. The bcell field arrays for the naive
+        bcells are then filled out. These include:
+            the lineage index
+            the target epitope
+            the variant affinities (note: variants specified in 
+                naive_high_affinity_variants will have the fitness above E0, while 
+                other variants have affinity E0)
+            the precalculated dEs from the multivariate log-normal distribution.
+        """
+        randu = np.random.uniform(size=self.naive_bcells_arr.shape)
+        naive_bcells_int = np.floor(self.naive_bcells_arr + randu).astype(int)
+        naive_bcells = Bcells(initial_number=naive_bcells_int.sum())
 
-        # Stochastically round up or down the frequency to get integer numbers
-        # Indexing takes care of the epitope type
         idx = 0
         for ep in range(self.n_ep):
             for j, fitness in enumerate(self.fitness_array):
                 idx_new = idx + naive_bcells_int[ep, j]
                 naive_bcells.lineage[idx: idx_new] = np.arange(idx, idx_new) + 1
                 naive_bcells.target_epitope[idx: idx_new] = ep
-                # XXX assuming all variants except WT are E0
-                naive_bcells.variant_affinities[idx: idx_new, 0] = fitness          # Vax Strain aff
-                naive_bcells.variant_affinities[idx: idx_new, 1:self.n_var] = self.E0    # Variant1 aff
+                # Higher affinities
+                naive_bcells.variant_affinities[
+                    idx: idx_new, 
+                    np.array(self.naive_high_affinity_variants)
+                ] = fitness
+                # Low affinities (E0)
+                naive_bcells.variant_affinities[
+                    idx: idx_new, 
+                    utils.get_other_idx(
+                        np.arange(self.n_var), 
+                        np.array(self.naive_high_affinity_variants)
+                    )
+                ] = self.E0
 
                 dE = naive_bcells.get_dE(idx_new, idx, ep)
                 for var in range(self.n_var):
@@ -111,6 +131,7 @@ class Simulation(Parameters):
             self.gc_bcells[gc_idx] = Bcells()
             self.naive_bcells[gc_idx] = self.get_naive_bcells()
 
+        self.plasmablasts = Bcells()
         self.egc_bcells = Bcells()
         self.plasma_bcells = Bcells()
         self.memory_bcells = Bcells()
@@ -134,16 +155,27 @@ class Simulation(Parameters):
         seeding_bcells = self.naive_bcells[gc_idx].get_seeding_bcells(self.ag_eff_conc)
         for _ in range(self.naive_bcells_n_divide):
             seeding_bcells.add_bcells(seeding_bcells)
+
+        # Set activated time
+        seeding_bcells.activated_time = np.ones(
+            shape=seeding_bcells.activated_time.shape
+        ) * (self.current_time + 0.5 * self.dt)
+
         self.gc_bcells[gc_idx].add_bcells(seeding_bcells)
 
         if self.memory_to_gc_fraction > 0.:  # XXX adjust this so that we can control how many memory cells are added based on memory_to_gc_fraction
-            seeding_memory_bcells = self.memory_bcells.get_seeding_bcells(self.ag_eff_conc)
+            seeding_memory_bcells = self.memory_bcells.get_seeding_bcells(
+                self.ag_eff_conc
+            )
             self.gc_bcells[gc_idx].add_bcells(seeding_memory_bcells)
 
-        daughter_bcells = self.gc_bcells[gc_idx].get_daughter_bcells(self.ag_eff_conc, self.tcell)
-        memory_bcells, plasma_bcells, nonexported_bcells = daughter_bcells.differentiate_bcells(
+        daughter_bcells = self.gc_bcells[gc_idx].get_daughter_bcells(
+            self.ag_eff_conc, self.tcell
+        )
+        differentiated_bcells = daughter_bcells.differentiate_bcells(
             self.output_prob, self.output_pc_fraction, utils.DerivedCells.GC.value
         )
+        memory_bcells, plasma_bcells, nonexported_bcells = differentiated_bcells
 
         self.memory_bcells.add_bcells(memory_bcells)
         self.plasma_bcells.add_bcells(plasma_bcells)
@@ -162,13 +194,16 @@ class Simulation(Parameters):
         # seeding_bcells = self.memory_bcells.get_seeding_bcells(conc)
         # self.egc_bcells.add_bcells(seeding_bcells)
 
-        daughter_bcells = self.egc_bcells.get_daughter_bcells(self.ag_eff_conc, self.tcell)
-        memory_bcells, plasma_bcells, nonexported_bcells = daughter_bcells.differentiate_bcells(
+        daughter_bcells = self.egc_bcells.get_daughter_bcells(
+            self.ag_eff_conc, self.tcell
+        )
+        differentiated_bcells = daughter_bcells.differentiate_bcells(
             self.egc_output_prob, 
             self.egc_output_pc_fraction,
             utils.DerivedCells.EGC.value,
             mutate=False
         )
+        memory_bcells, plasma_bcells, nonexported_bcells = differentiated_bcells
 
         self.memory_bcells.add_bcells(memory_bcells)
         self.plasma_bcells.add_bcells(plasma_bcells)
@@ -183,7 +218,10 @@ class Simulation(Parameters):
         """
         self.tcell: float = self.n_tcells_arr[timestep_idx]
         masked_ag_conc = self.concentrations.get_masked_ag_conc()
-        self.ag_eff_conc = np.array([self.ag_eff, 1]) @ masked_ag_conc
+        self.ag_eff_conc = (
+            np.array([self.ag_eff, 1]) @ 
+            masked_ag_conc.transpose((1,0,2))
+        )
 
         for gc_idx in range(self.n_gc):
             self.run_gc(gc_idx)
@@ -201,9 +239,15 @@ class Simulation(Parameters):
         self.plasma_bcells.kill()
         self.memory_bcells.kill()
 
-        plasma_bcells_gc = self.plasma_bcells.get_filtered_by_tag(utils.DerivedCells.GC)
-        plasma_bcells_egc = self.plasma_bcells.get_filtered_by_tag(utils.DerivedCells.EGC)
-        self.concentrations.update_concentrations(self.current_time, plasma_bcells_gc, plasma_bcells_egc)
+        plasma_bcells_gc = self.plasma_bcells.get_filtered_by_tag(
+            utils.DerivedCells.GC
+        )
+        plasma_bcells_egc = self.plasma_bcells.get_filtered_by_tag(
+            utils.DerivedCells.EGC
+        )
+        self.concentrations.update_concentrations(
+            self.current_time, self.plasmablasts, plasma_bcells_gc, plasma_bcells_egc
+        )
 
 
     def read_checkpoint(self) -> None:
@@ -236,7 +280,6 @@ class Simulation(Parameters):
             write_fn(data, file_path)
 
 
-
     def run(self) -> None:
         """Run the simulation.
         
@@ -244,7 +287,7 @@ class Simulation(Parameters):
         and run dynamics for all timesteps. Then write out the simulation pickle file and 
         parameter json file.
         """
-
+        start_time = time.perf_counter()
         np.random.seed(self.seed)
 
         if self.vax_idx > 0:
@@ -254,6 +297,11 @@ class Simulation(Parameters):
 
         for timestep_idx in range(self.n_timesteps):
             self.current_time = timestep_idx * self.dt
+
+            current_time = time.perf_counter()
+            elapsed_time = f'{current_time - start_time:.3f}'
+            print(f'{self.current_time = }', f'{elapsed_time = }') # XXX
+            
             self.run_timestep(timestep_idx)
 
         # Write files

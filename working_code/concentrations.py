@@ -53,7 +53,7 @@ class Concentrations(Parameters):
 
         self.ab_ka_condense_fn: Callable[
             [np.ndarray], np.ndarray
-        ] = lambda x: x.mean(axis=0)  # Take average over all n_var variants for ab_ka
+        ] = lambda x: x[:self.n_ag].mean(axis=0)  # Take average over all n_ag variants for ab_ka
 
         self.ab_ka = np.ones(
             (self.n_var, self.n_ig_types, self.n_ep)
