@@ -1,15 +1,37 @@
-from dataclasses import dataclass
-from typing import Callable
+import dataclasses
+import os
+
 import numpy as np
+
 import utils
 
 
-@dataclass
+@dataclasses.dataclass
 class Parameters:
     """
     Base dataclass that contains simulation parameters.
 
     Inherited classes will have access to all these parameters.
+    """
+
+    updated_params_file: str | None = None
+    """
+    File to updated parameters. If None, then use defaults.
+    """
+
+    experiment_dir: str = 'experiments'
+    """
+    Directory for containing the experiment data.
+    """
+
+    param_file_name: str = 'parameters.json'
+    """
+    File name for writing the parameters of an experiment.
+    """
+
+    simulation_file_name: str = 'simulation.pkl'
+    """
+    File name for writing the simulation data.
     """
 
     overwrite: bool = True
@@ -22,7 +44,7 @@ class Parameters:
     The random seed for reproducibility.
     """
     
-    dt: float = 0.01 # XXX
+    dt: float = 0.05 # XXX
     """
     The time step for simulations, in days.
     """
@@ -52,8 +74,14 @@ class Parameters:
     The number of variants.
     """
 
-    n_ag: int = 1
-    assert n_ag < n_var
+    ag_idxs: tuple[int] = tuple([0])
+    assert max(ag_idxs) < n_var
+    """
+    The indices of the Ags, possibly from 0 to n_var - 1
+    """
+
+    n_ag: int = len(ag_idxs)
+    assert n_ag <= n_var
     """
     The number of antigens.
     """
@@ -180,13 +208,6 @@ class Parameters:
     affinities_history: tuple[float] = (0., 6., 7., 8., 9.)
     """
     Affinity thresholds for counting cells for the simulation history.
-    """
-
-    activation_condense_fn: Callable[[np.ndarray], np.ndarray] = lambda x: x.sum(axis=1)
-    """
-    Given activations to all Ags, this functions condenses them to a single value.
-
-    For now, do a sum over all Ags.
     """
     
     C0: float = 0.008
@@ -395,10 +416,32 @@ class Parameters:
     
     @property
     def overlap_matrix(self) -> np.ndarray:
-        """Defines the epitope overlap matrix."""
+        """Defines the epitope overlap matrix. XXX move to attributes"""
         overlap_matrix = np.eye(self.n_ep)
         # XXX adjust if there is some overlap
         return overlap_matrix
+
+
+    @property
+    def sigma(self) -> np.ndarray:
+        """Get sigma: covariance matrix per epitope. XXX move to attributes"""
+        sigma = np.zeros((self.n_ep, self.n_var, self.n_var))
+        sigma[0] = np.array([
+            [1, 0.4, 0.4],
+            [0.4, 1, 0],
+            [0.4, 0, 1]
+        ])
+        sigma[1] = np.array([
+            [1, 0.95, 0.4],
+            [0.95, 1., 0],
+            [0.4, 0., 1]
+        ])
+        sigma[2] = np.array([
+            [1, 0.4, 0.95],
+            [0.4, 1, 0],
+            [0.95, 0, 1]
+        ])
+        return sigma
 
 
     @property
@@ -421,28 +464,6 @@ class Parameters:
                 n_tcells_arr[i] = n_tcells_arr[i - 1] * np.exp(-self.d_Tfh * self.dt)
 
         return n_tcells_arr
-
-
-    @property
-    def sigma(self) -> np.ndarray:
-        """Get sigma: covariance matrix per epitope."""# XXX
-        sigma = np.zeros((self.n_ep, self.n_var, self.n_var))
-        sigma[0] = np.array([
-            [1, 0.4, 0.4],
-            [0.4, 1, 0],
-            [0.4, 0, 1]
-        ])
-        sigma[1] = np.array([
-            [1, 0.95, 0.4],
-            [0.95, 1., 0],
-            [0.4, 0., 1]
-        ])
-        sigma[2] = np.array([
-            [1, 0.4, 0.95],
-            [0.4, 1, 0],
-            [0.95, 0, 1]
-        ])
-        return sigma
     
 
     @property
@@ -492,4 +513,67 @@ class Parameters:
                 )
 
         return naive_bcells_arr
+
+
+    ################################################################
+    # Methods.
+    ################################################################
+    
+
+    def update_parameters_from_file(self, file_path: str | None=None) -> None:
+        """Update parameter from default by reading file, if file is not None.
+        
+        Args:
+            file_path: path to the json file containing new parameters.
+        """
+        self.updated_params_file = file_path
+        if self.updated_params_file:
+            updated_params = utils.read_json(file_path)
+            for key, value in updated_params.items():
+                setattr(self, key, value)
+
+
+    def find_previous_experiment(self) -> str:
+        """Find experiment directory for previous experiment.
+        
+        Search the experiment directory, and read the parameter json file
+        from each experiment subdirectory. If the parameter json file matches
+        the current experiment's parameters in every parameter except vax_idx,
+        which the previous experiment should be 1 less, then it is the previous
+        experiment. If no previous experiment is found, raise an error.
+
+        Returns:
+            experiment: the name of the experiment directory corresponding to
+                the previous experiment.
+        """
+        param_dict = {
+            field.name: getattr(self, field.name)
+            for field in dataclasses.fields(self)
+        }
+
+        for experiment in os.listdir(self.experiment_dir):
+
+            previous_exp = True
+
+            data_dir = os.path.join(self.experiment_dir, experiment)
+            exp_params = utils.read_json(data_dir, self.param_file_name)
+            
+            for param, value in param_dict.items():
+
+                if param != 'vax_idx':
+                    if value != exp_params[param]:
+                        previous_exp = False
+                else:
+                    if value != exp_params[param] + 1:
+                        previous_exp = False
+
+            if previous_exp:
+                return experiment
+                    
+        raise ValueError('Did not find previous experiment')
+
+
+
+
+
             

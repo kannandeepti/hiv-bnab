@@ -1,6 +1,8 @@
 import copy
-from typing import Self, Optional
+from typing import Self
+
 import numpy as np
+
 import utils
 from parameters import Parameters
 
@@ -9,11 +11,17 @@ from parameters import Parameters
 class Bcells(Parameters):
 
 
-    def __init__(self, initial_number: Optional[int]=None):
+    def __init__(
+        self, 
+        updated_params_file: str | None, 
+        initial_number: str | None=None
+    ):
         """Initialize attributes.
         
-        All the parameters from Parameters are included. The birth/death rates and
-        bcell field arrays are set as well.
+        All the parameters from Parameters are included. If updated_params_file 
+        is passed, then the parameters are updated from the file.
+        
+        The birth/death rates and bcell field arrays are set as well.
 
         Args:
             initial_number: Initial number of bcells.
@@ -26,6 +34,9 @@ class Bcells(Parameters):
                 all bcell field arrays at once (replace_all_arrays, filter_all_arrays)
         """
         super().__init__()
+        self.update_parameters_from_file(updated_params_file)
+
+
         self.birth_rate = self.bcell_birth_rate
         self.death_rate = None
         self.initial_number = (
@@ -42,6 +53,7 @@ class Bcells(Parameters):
             'activated_time',
             'gc_or_egc_derived'
         ]
+
     
     def reset_bcell_fields(self) -> None:
         """Initialize bcell field arrays.
@@ -163,7 +175,9 @@ class Bcells(Parameters):
             activated: Whether bcell is activated. np.ndarray (shape=(n_cells)).
         """
         conc_term = conc_array / self.C0
-        aff_term = 10 ** (self.variant_affinities[:, :self.n_ag] - self.E0)
+        aff_term = 10 ** (
+            self.variant_affinities[:, :np.array(self.ag_idxs)] - self.E0
+        )
         activation_signal = (conc_term * aff_term) ** self.w2
 
         if self.w1 > 0:  # Alternative Ag capture model
@@ -171,7 +185,7 @@ class Bcells(Parameters):
             denom = self.w1 + activation_signal
             activation_signal = num / denom
 
-        activation_signal = self.activation_condense_fn(activation_signal)
+        activation_signal = activation_signal.sum(axis=1)  # Sum over all Ags
         min_arr = np.minimum(activation_signal, 1)
         activated = min_arr > np.random.uniform(size=activation_signal.shape)
         return activation_signal, activated

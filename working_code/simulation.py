@@ -1,9 +1,12 @@
 import copy
 import dataclasses
+import datetime
 import os
 import time
 from typing import Self, Any
+
 import numpy as np
+
 import utils
 from parameters import Parameters
 from bcells import Bcells
@@ -14,15 +17,21 @@ from concentrations import Concentrations
 class Simulation(Parameters):
 
 
-    def __init__(self):
+    def __init__(self, updated_params_file: str | None=None, parallel_run_idx: int=0):
         """Initialize attributes.
         
-        All the parameters from Parameters are included. file_paths, history,
-        concentrations, are specific to Simulation and are created as well.
+        All the parameters from Parameters are included. If updated_params_file is 
+        passed, then the parameters are updated from the file.
+
+        All other inherited classes of Parameters need to have updated_params_file
+        passed.
         """
         super().__init__()
+        self.update_parameters_from_file(updated_params_file)
+
+        self.parallel_run_idx = parallel_run_idx
         self.create_file_paths()
-        self.concentrations = Concentrations()
+        self.concentrations = Concentrations(self.updated_params_file)
         self.reset_history()
 
 
@@ -119,10 +128,9 @@ class Simulation(Parameters):
         """Write parameters to json file.
 
         Properties from Parameter class are not included.
-        
-        XXX still need to adjust this to write non-default parameters.
         """
         parameters = Parameters()
+        parameters.update_parameters_from_file(self.updated_params_file)
         return {
             field.name: getattr(parameters, field.name)
             for field in dataclasses.fields(parameters)
@@ -130,16 +138,26 @@ class Simulation(Parameters):
 
     
     def create_file_paths(self) -> None:
-        """Create path attributes.
+        """Create path attributes. Experiments are labeled using their time.
         
         data_dir: path to the directory for a particular experiment
         prev_file_path: path to the pickle file for the previous vax
         file_path: path to the pickle file for the current vax
         """
-        self.data_dir = '' # XXX
-        self.prev_pickle_path = '' # XXX
-        self.pickle_path = '' #XXX
-        self.parameter_json_path = os.path.join(self.data_dir, 'parameters.json')
+        date_time = datetime.datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
+        self.data_dir = os.path.join(
+            self.experiment_dir, f'{date_time}_{self.parallel_run_idx}'
+        )
+
+        self.pickle_path = os.path.join(self.data_dir, self.simulation_file_name)
+        self.parameter_json_path = os.path.join(self.data_dir, self.param_file_name)
+
+        if self.vax_idx > 0:
+            self.prev_pickle_path = os.path.join(
+                self.experiment_dir, 
+                self.find_previous_experiment(), 
+                self.simulation_file_name
+            )
 
 
     def get_naive_bcells(self) -> Bcells:
@@ -158,7 +176,10 @@ class Simulation(Parameters):
         """
         randu = np.random.uniform(size=self.naive_bcells_arr.shape)
         naive_bcells_int = np.floor(self.naive_bcells_arr + randu).astype(int)
-        naive_bcells = Bcells(initial_number=naive_bcells_int.sum())
+        naive_bcells = Bcells(
+            updated_params_file=self.updated_params_file, 
+            initial_number=naive_bcells_int.sum()
+        )
 
         idx = 0
         for ep in range(self.n_ep):
@@ -215,17 +236,15 @@ class Simulation(Parameters):
             plasma_bcells: empty Bcells
             memory_bcells: empty Bcells
         """
+        self.dummy_bcells = Bcells(updated_params_file=self.updated_params_file)
 
-        self.gc_bcells = [Bcells() for _ in range(self.n_gc)]
-        self.naive_bcells = [Bcells() for _ in range(self.n_gc)]
-        for gc_idx in range(self.n_gc):
-            self.gc_bcells[gc_idx] = Bcells()
-            self.naive_bcells[gc_idx] = self.get_naive_bcells()
+        self.gc_bcells = [copy.deepcopy(self.dummy_bcells) for _ in range(self.n_gc)]
+        self.naive_bcells = [self.get_naive_bcells() for _ in range(self.n_gc)]
 
-        self.plasmablasts = Bcells()  # Doing nothing right now.
-        self.egc_bcells = Bcells()
-        self.plasma_bcells = Bcells()
-        self.memory_bcells = Bcells()
+        self.egc_bcells = copy.deepcopy(self.dummy_bcells)
+        self.plasma_bcells = copy.deepcopy(self.dummy_bcells)
+        self.memory_bcells = copy.deepcopy(self.dummy_bcells)
+        self.plasmablasts = copy.deepcopy(self.dummy_bcells) # Doing nothing right now.
 
         self.set_death_rates()
     
@@ -307,7 +326,7 @@ class Simulation(Parameters):
         """Read previous simulation checkpoint, reset GC bcells, and set EGC bcells to memory cells."""
         self: Self = utils.read_pickle(self.prev_pickle_path)
         for gc_idx in range(self.n_gc):
-            self.gc_bcells[gc_idx] = Bcells()  # XXX To be like Leerang's code, I think we should reset the GC bcells and add the non-egc bcells here
+            self.gc_bcells[gc_idx] = copy.deepcopy(self.dummy_bcells)  # XXX To be like Leerang's code, I think we should reset the GC bcells and add the non-egc bcells here
         self.egc_bcells = self.memory_bcells  # XXX make changes so we can control what fraction of memory cells become egc bcells.
         self.reset_history()
 
@@ -467,5 +486,6 @@ class Simulation(Parameters):
             self.run_timestep()
 
         # Write files
+        os.makedirs(self.data_dir)
         self.check_overwrite(self, self.pickle_path)
         self.check_overwrite(self.get_parameter_dict(), self.parameter_json_path)

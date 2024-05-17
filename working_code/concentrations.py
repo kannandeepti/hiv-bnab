@@ -1,8 +1,9 @@
 import copy
 from enum import Enum
 from typing import Callable
+
 import numpy as np
-import utils
+
 from parameters import Parameters
 from bcells import Bcells
 
@@ -20,8 +21,11 @@ class ConcentrationIdx(Enum):
 
 class Concentrations(Parameters):
 
-    def __init__(self):
-        """Initialize concentration arrays.
+    def __init__(self, updated_params_file: str | None):
+        """Initialize attributes.
+        
+        All the parameters from Parameters are included. If updated_params_file 
+        is passed, then the parameters are updated from the file.
         
         Attributes:
             ig_type: Different Ig types
@@ -44,6 +48,8 @@ class Concentrations(Parameters):
                 Keeping track of affinities to n_var > n_ag, but there are only n_ag in circulation.
         """
         super().__init__()
+        self.update_parameters_from_file(updated_params_file)
+
         #TODO: add a bnAb class (on a separate branch for HIV project)
         self.ig_types_arr = np.array([[0, 0, 0], [1, 0 ,0], [0, 1, 1]])
         self.ag_conc = np.zeros((self.n_ep + 1, self.n_ag))
@@ -55,7 +61,7 @@ class Concentrations(Parameters):
         # By default, take the first n_ag rows of Ka to be the n_ag variants in circulation
         self.ab_ka_condense_fn: Callable[
             [np.ndarray], np.ndarray
-        ] = lambda x: x[:self.n_ag]  
+        ] = lambda x: x[np.array(self.ag_idxs)]  
 
         self.ab_ka = np.ones(
             (self.n_var, self.n_ig_types, self.n_ep)

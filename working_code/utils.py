@@ -1,7 +1,8 @@
 import json
+import pickle
 from enum import Enum
 from typing import Callable, Any
-import pickle
+
 import numpy as np
 import scipy
 
@@ -25,7 +26,7 @@ def read_pickle(file: str) -> Any:
 
 
 def write_json(data: dict, file: str) -> None:
-    with open(file, 'r') as f:
+    with open(file, 'w') as f:
         json.dump(data, f)
     
 
