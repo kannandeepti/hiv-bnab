@@ -3,7 +3,7 @@ import os
 
 import numpy as np
 
-import utils
+from . import utils
 
 
 @dataclasses.dataclass
