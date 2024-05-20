@@ -176,7 +176,7 @@ class Bcells(Parameters):
         """
         conc_term = conc_array / self.C0
         aff_term = 10 ** (
-            self.variant_affinities[:, np.array(self.ag_idxs)] - self.E0
+            self.variant_affinities[:, :np.array(self.ag_idxs)] - self.E0
         )
         activation_signal = (conc_term * aff_term) ** self.w2
 
