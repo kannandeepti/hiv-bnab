@@ -3,8 +3,8 @@ from typing import Self
 
 import numpy as np
 
-import utils
-from parameters import Parameters
+from . import utils
+from .parameters import Parameters
 
 
 

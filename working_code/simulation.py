@@ -7,10 +7,10 @@ from typing import Self, Any
 
 import numpy as np
 
-import utils
-from parameters import Parameters
-from bcells import Bcells
-from concentrations import Concentrations
+from . import utils
+from .parameters import Parameters
+from .bcells import Bcells
+from .concentrations import Concentrations
 
 
 

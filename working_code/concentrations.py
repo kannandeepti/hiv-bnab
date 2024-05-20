@@ -4,8 +4,8 @@ from typing import Callable
 
 import numpy as np
 
-from parameters import Parameters
-from bcells import Bcells
+from .parameters import Parameters
+from .bcells import Bcells
 
 
 class ConcentrationIdx(Enum):
@@ -128,8 +128,8 @@ class Concentrations(Parameters):
         
         total_ab_conc_per_epitope = self.ab_conc.sum(axis=0)  # shape n_ep
         weighted_total_ab_conc_per_epitope = (
-            self.ab_conc * self.ab_ka_condense_fn(self.ab_ka)
-        ).sum(axis=0) # shape n_ep
+            self.ab_conc[np.newaxis, :, :] * self.ab_ka_condense_fn(self.ab_ka)
+        ).sum(axis=(0, 1)) # shape n_ep
 
         total_ab_conc_per_epitope_with_overlap = (
             total_ab_conc_per_epitope @ self.overlap_matrix
