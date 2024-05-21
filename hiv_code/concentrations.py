@@ -1,0 +1,312 @@
+import copy
+from enum import Enum
+from typing import Callable
+import numpy as np
+from . import utils
+from .parameters import Parameters
+from .bcells import Bcells
+
+
+class ConcentrationIdx(Enum):
+    """Class for recording which indices in arrays correspond to which Ag/Ab types.
+    
+    For the first pass HIV calculation, we ignore the antigen presentation dynamics
+    and instead assume that [IC-FDC] is fixed at its carrying capacity. We further
+    assume that bnAbs are the only antibody type that deposit antigen onto the FDC,
+    and so the distribution of epitopes displayed is fixed. However, epitopes can
+    progressively be masked as nAbs develop.
+    
+    """
+    # For masked_ag_conc
+    SOLUBLE = 0
+    IC_FDC = 1
+    # For ab_conc and ab_ka
+    IGM_NAT = 0
+    IGM_IMM = 1
+    IGG = 2
+
+
+class Concentrations(Parameters):
+
+    def __init__(self):
+        """Initialize concentration arrays.
+        
+        Attributes:
+            ig_type: Different Ig types
+            n_ig_types: Number of different Ig types.
+            ig_types_arr: Not sure. Involved in matmul with ig_new and ka_new
+                (shape=(n_ig_types, n_ep))
+            ic_fdc_conc: Concentrations of total IC-FDC (shape=(n_ep, )). 
+                (free + masked)
+            ab_conc: Concentrations of IgG nAbs (shape=(n_ep,))
+            ab_decay_rates: Decay rates for Ig types. Multiplied with ab_conc.
+                np.ndarray (shape=(2, np.newaxis))
+            ab_ka: Kas for neutralizing antibodies to each epitope.
+                (shape=(n_ep,))
+        """
+        super().__init__()
+
+        self.ig_types = ['bnAb', 'IgG-GCPC', 'IgG-EGCPC']
+        self.n_ig_types = len(self.ig_types)
+        self.ig_types_arr = np.array([[0, 0, 0], [1, 0 ,0], [0, 1, 1]])
+
+        #initialize IC-FDC at capacity according to circulating epitope distribution
+        self.ic_fdc_conc = np.zeros((self.n_ep,))
+        #TODO: convert tuple f_ag in parameters to array and do matrix multiplication
+        self.ab_conc = np.zeros((self.n_ep,))
+
+        self.ab_ka = np.ones(
+            (self.n_ep,)
+        ) * self.initial_ka
+
+    
+    def get_IC(
+        self, 
+        ig_conc: np.ndarray | float, 
+        ag_conc: np.ndarray | float, 
+        ka: np.ndarray | float, 
+        fail_if_nan: bool=False
+    ) -> np.ndarray:
+        """Calculate the Ag-Ab IC concentration.
+
+        Args:
+            ig_conc: Ab or 'ligand', either a np.ndarray (shape=(n_ep)) or
+                float.
+            ag_conc: Ag or 'receptor', nd.ndarray (shape=(n_ep)) or float
+            ka: affinity Ka, np.ndarray (shape=(n_ep)) or float.
+            fail_if_nan: If IC conc is not real, then raise ValueError.
+                Otherwise, set nan values to 0.
+
+        Returns:
+            IC: IC concentrations (shape=(n_ep, n_ag) or (n_ag))
+        """
+        term1 = ag_conc + ig_conc + 1/ka
+        term2 = np.emath.sqrt(np.square(term1) - 4 * ag_conc * ig_conc)
+        IC = (term1 - term2) / 2
+
+        if fail_if_nan:
+            if ~np.isreal(IC) or np.isnan(IC):
+                raise ValueError('Imaginary or nan for IC conc')
+        else:
+            IC = np.nan_to_num(IC, 0)
+        return IC
+
+
+    def get_masked_ag_conc(self) -> np.ndarray:
+        """Get [IC-FDC] free concentration after applying epitope masking.
+        Assumes antigen is masked directly on FDC and that total [IC-FDC]
+        per epitope is fixed.
+        
+        Returns:
+            masked_ag_conc: [IC-FDC] after epitope masking.
+                np.ndarray (shape=(n_ep,)).
+        """
+        if self.ic_fdc_conc.sum() == 0:
+            return masked_ag_conc
+        
+        total_ab_conc_per_epitope = self.ab_conc # shape n_ep
+        weighted_total_ab_conc_per_epitope = (
+            self.ab_conc * self.ab_ka
+        ) # shape n_ep
+
+        total_ab_conc_per_epitope_with_overlap = (
+            total_ab_conc_per_epitope @ self.overlap_matrix
+        ) # shape n_ep
+
+        average_ka_per_epitope_with_overlap = ((
+            weighted_total_ab_conc_per_epitope @ self.overlap_matrix
+        ) / total_ab_conc_per_epitope_with_overlap) # shape n_ep
+
+        #consider [IC-FDC free] + [Ab] -> [IC-FDC masked] for each epitope separately
+        masked_ic_fdc = self.get_IC(
+            total_ab_conc_per_epitope_with_overlap,  # XXX should we change from 5, shape n_ep
+            self.ic_fdc_conc,                               # XXX shape n_ep
+            average_ka_per_epitope_with_overlap      # XXX shape n_ep
+        )
+
+        total_free_ic_fdc_conc = self.ic_fdc_conc - self.masking * masked_ic_fdc # shape (n_ep,)
+        return total_free_ic_fdc_conc
+    
+
+    def get_rescaled_rates(
+        self, 
+        current_time: float
+    ) -> tuple[np.ndarray]:
+        """Get rescaled deposit and Ab decay rates.
+
+        Needed if concentrations would go to 0.
+
+        Args:
+            deposit_rates: The FDC-deposit rates. np.ndarray
+                (shape=(n_ag, n_ig_types, n_ep)).
+            current_time: Current simulation time from Simulation class.
+
+        Returns:
+            ab_decay: Rescaled Ab decay rates.
+                np.ndarray (shape=(n_ep,))
+        """
+        ab_decay = (- self.d_igg * self.ab_conc + 
+            self.epsilon
+         ) # (3, n_ep)
+        rescale_idx = self.ab_conc < -ab_decay * self.dt # (3, n_ep)
+        rescale_factor = self.ab_conc / (-ab_decay * self.dt) # (3, n_ep)
+        if rescale_idx.flatten().sum():
+            import pdb; pdb.set_trace()
+            print(f'Ab reaction rates rescaled. Time={current_time:.2f}')
+            ab_decay[rescale_idx] *= rescale_factor[rescale_idx]
+            if np.isnan(ab_decay.flatten()).sum():
+                raise ValueError('Rescaled Ab decay rates contain Nan')
+        return ab_decay  # (shape=(n_ag, n_ig_types, n_ep)) (3, n_ep)
+    
+
+    def ag_ab_update(
+        self, 
+        deposit_rates: np.ndarray, 
+        ag_decay: np.ndarray, 
+        ab_decay: np.ndarray, 
+        current_time: float
+    ) -> None:
+        """Update the ab_conc arrays based on decay. We assume [IC-FDC]
+        is fixed and has no dynamics. Also assume only bnAbs deposit antigen
+        on FDC so nAb dynamics independent of deposition rates.
+
+        Args:
+            ab_decay: Ab decay rates. np.ndarray (shape=(n_ig_types, n_ep))
+            current_time: Current simulation time from Simulation class.
+        """
+
+        self.ab_conc += ab_decay * self.dt
+        self.ab_conc[np.abs(self.ab_conc) < self.conc_threshold] = 0
+
+        if np.any(self.ab_conc.flatten() < 0):
+            raise ValueError('Negative concentration.')
+            
+    
+    def get_new_arrays(
+        self, 
+        current_time: float,
+        plasmablasts: Bcells,
+        plasma_bcells_gc: Bcells, 
+        plasma_bcells_egc: Bcells
+    ) -> tuple[np.ndarray]:
+        """Get the ig_new and ka_new arrays, not sure what they do.
+
+        Args:
+            current_time: Current simulation time from Simulation class.
+            plasma_bcells_gc: Plasma bcells that were tagged as being 
+                GC-derived.
+            plasma_bcells_egc: Plasma bcells that were tagged as being 
+                EGC-derived.
+        
+        Returns:
+            ig_new: np.ndarray (shape=(n_ig_types, n_ep))
+            ka_new: np.ndarray (shape=(n_var, n_ig_types, n_ep))
+        """
+        threshold = current_time - self.delay
+        ig_new = np.zeros((self.n_ig_types, self.n_ep))
+        ka_new = np.array([ig_new for _ in range(self.n_var)]) # (n_var, n_ig_types, n_ep)
+        affinity = np.empty(shape=(self.n_var, self.n_ig_types), dtype=object) # (n_var, n_ig_types)
+        target = np.empty(self.n_ig_types, dtype=object)
+
+        for var in range(self.n_var):
+            bcell_list = [plasmablasts, plasma_bcells_gc, plasma_bcells_egc]
+            for ig_idx, bcells in enumerate(bcell_list):
+                affinity[var, ig_idx] = bcells.variant_affinities[:, var]
+                # GC derived plasma cell antibodies only contribute to concentration
+                # after delay time of 2 days
+                threshold_value = {
+                    ConcentrationIdx.IGG.value: (bcells.activated_time < threshold)
+                }.get(ig_idx, 1)
+                target[ig_idx] = bcells.target_epitope * threshold_value
+
+        for ig_idx, ig_type in enumerate(self.ig_types):
+            for ep in range(self.n_ep):
+                if np.any(target[ig_idx].flatten() == ep):
+                    ig_new[ig_idx, ep] = (
+                        (target[ig_idx] == ep).sum() * 
+                        self.r_igm * (ig_idx == 0) + 
+                        self.r_igg * (ig_idx > 0)
+                    )
+
+                    for var in range(self.n_var):
+                        target_idx = target[ig_idx] == ep
+                        log10_aff = (
+                            affinity[var, ig_idx][target_idx] + 
+                            self.nm_to_m_conversion
+                        )
+                        ka_new[var, ig_idx, ep] = np.mean(10 ** log10_aff)
+        
+        return ig_new, ka_new
+    
+
+    def update_ka(
+        self, 
+        ab_conc_copy: np.ndarray, 
+        ab_decay: np.ndarray, 
+        ig_new: np.ndarray, 
+        ka_new: np.ndarray
+    ) -> None:
+        """Update the ab_ka array.
+        
+        Args:
+            ab_conc_copy: ab_conc before any rescaling.
+                (shape=(n_ig_types, n_ep))
+            ab_decay: Ab decay rates. np.ndarray (shape=(n_ig_types, n_ep))
+            ig_new: np.ndarray (shape=(n_ig_types, n_ep))
+            ka_new: np.ndarray (shape=(n_var, n_ig_types, n_ep))
+        """
+        for var in range(self.n_var):
+            current_sum = (ab_conc_copy + self.dt * ab_decay) * self.ab_ka[var]
+            new_ka = (
+                current_sum + 
+                self.ig_types_arr @ (ig_new * ka_new[var] * self.dt)
+            ) / (self.ab_conc + self.epsilon)
+
+            new_ka[self.ab_conc == 0] = 0
+
+            if np.any(new_ka.flatten() < 0):
+                print('Warning: Error in Ka values, negative')
+            if np.any(np.abs(new_ka).flatten() > self.max_ka):
+                print(f'Warning: Error in Ka value, greater than {self.max_ka = }')
+
+            new_ka[np.isnan(new_ka)] = 0
+            self.ab_ka[var] = new_ka
+
+
+    def update_concentrations(
+        self, 
+        current_time: float,
+        plasmablasts: Bcells,
+        plasma_bcells_gc: Bcells, 
+        plasma_bcells_egc: Bcells
+    ) -> None:
+        """Update ag_conc, ab_conc, and ab_ka arrays.
+
+        Args:
+            current_time: Current simulation time from Simulation class.
+            plasma_bcells_gc: Plasma bcells that were tagged as being 
+                GC-derived.
+            plasma_bcells_egc: Plasma bcells that were tagged as being 
+                EGC-derived.
+        """
+
+        ab_conc_copy = copy.deepcopy(self.ab_conc)
+        
+        ab_decay = self.get_rescaled_rates(
+            current_time
+        ) # (shape=(n_ag, n_ig_types, n_ep)) (3, n_ep)
+
+        self.ag_ab_update(ab_decay, current_time)
+        #TODO: fix update ka
+        ig_new, ka_new = self.get_new_arrays(
+            current_time, plasma_bcells_gc, plasma_bcells_egc
+        )
+
+        # Update amounts and Ka
+        self.ab_conc[ConcentrationIdx.IC_FDC.value:] += np.vstack([
+            ig_new[ConcentrationIdx.IGM_NAT.value, :],
+            ig_new[ConcentrationIdx.IGM_IMM.value:, :].sum(axis=0)
+        ]) * self.dt
+        self.update_ka(ab_conc_copy, ab_decay, ig_new, ka_new)
+
+        self.ab_conc[self.ab_conc < self.conc_threshold] = 0

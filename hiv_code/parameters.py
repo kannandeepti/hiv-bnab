@@ -82,14 +82,11 @@ class Parameters:
     
     f_ag: tuple[float] = (0.5, 0.5)
     """ fraction of antigen i of total antigen. """
-
+    
     n_ep: int = 3
     """
     The number of total unique epitopes across a population of antigens in circulation.
     """
-
-    fdc_capcity: float = 1.0
-    """ TODO: what value should this be? units? how compare to C0"""
 
     mutation_death_prob: float = 0.3
     """
@@ -257,15 +254,25 @@ class Parameters:
     """
     Initial ka value.
     """
-    
-    igm0: float = 0.01
+    # No IgM in this calculation
+    #igm0: float = 0.01
     """
     Initial IgM concentration (nm-1).
+    """
+
+    bnab_conc: float = 0.01
+    """
+    Concentration of administered bnAbs (fixed) (nm-1).
     """
     
     deposit_rate: float = 24.
     """
     The deposit rate (units XXX).
+    """
+
+    d_bnab: float = 0.
+    """
+    Decay rate of administered bnAbs. (Assume they don't decay)
     """
     
     d_igm: float = np.log(2) / 28
