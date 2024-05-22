@@ -1,0 +1,20 @@
+name: GCdynamics
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - poetry
+  - ipython
+  - scikit-learn
+  - numba
+  - jupyterlab
+  - matplotlib
+  - pandas
+  - jupyter
+  - numpy
+  - ipykernel
+  - h5py
+  - tqdm
+  - seaborn
+  - scipy
+prefix: /home/gridsan/dkannan/.conda/envs/GCdynamics
