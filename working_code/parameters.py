@@ -3,7 +3,7 @@ import os
 
 import numpy as np
 
-from . import utils
+import utils
 
 
 @dataclasses.dataclass
@@ -11,7 +11,9 @@ class Parameters:
     """
     Base dataclass that contains simulation parameters.
 
-    Inherited classes will have access to all these parameters.
+    Inherited classes will have access to all these parameters. Some arrays are
+    stored as tuples because the np.ndarray type cannot be serialized into a json
+    file.
     """
 
     updated_params_file: str | None = None
@@ -23,6 +25,9 @@ class Parameters:
     """
     Directory for containing the experiment data.
     """
+
+    history_file_name: str = 'history.pkl'
+    """File name for writing the history pickle file."""
 
     param_file_name: str = 'parameters.json'
     """
@@ -46,7 +51,7 @@ class Parameters:
     
     dt: float = 0.05 # XXX
     """
-    The time step for simulations, in days.
+    The time step for simulations (days).
     """
     
     epsilon: float = 1e-11
@@ -69,28 +74,28 @@ class Parameters:
     The number of residues.
     """
     
-    n_var: int = 3
+    n_var: int = 2 # XXXX
     """
     The number of variants.
     """
 
-    n_ag: int = 2
+    ag_idxs: tuple[int] = tuple([0])
+    assert max(ag_idxs) < n_var
+    """
+    The indices of the Ags, possibly from 0 to n_var - 1
+    """
+
+    n_ag: int = len(ag_idxs)
     assert n_ag <= n_var
     """
-    The number of antigens in circulation.
+    The number of antigens.
     """
     
-    f_ag: tuple[float] = (0.5, 0.5)
-    """ fraction of antigen i of total antigen. """
-
-    n_ep: int = 3
+    n_ep: int = 2 # XXXX
     """
-    The number of total unique epitopes across a population of antigens in circulation.
+    The number of epitopes.
     """
-
-    fdc_capcity: float = 1.0
-    """ TODO: what value should this be? units? how compare to C0"""
-
+    
     mutation_death_prob: float = 0.3
     """
     The probability of death due to mutation.
@@ -123,27 +128,27 @@ class Parameters:
     
     gc_entry_birth_rate: float = 1
     """
-    The birth rate of GC entry.
+    The birth rate of GC entry (day-1).
     """
     
     bcell_birth_rate: float = 2.5
     """
-    The birth rate of B cells.
+    The birth rate of B cells (day-1).
     """
     
     bcell_death_rate: float = 0.5
     """
-    The death rate of B cells.
+    The death rate of B cells (day-1).
     """
     
     plasma_half_life: float = 4
     """
-    The half-life of plasma cells.
+    The half-life of plasma cells (days).
     """
     
     memory_half_life: float = float('inf')
     """
-    The half-life of memory cells.
+    The half-life of memory cells (days).
     """
     
     memory_to_gc_fraction: float = 0.
@@ -172,7 +177,7 @@ class Parameters:
     Initial energy level.
     """
 
-    E1hs: tuple = (7, 6.6, 6.6)
+    E1hs: tuple = (7, 6.6)  # XXXX
     assert len(E1hs) == n_ep
     """
     Energy levels for geometric distribution for each epitope.
@@ -190,9 +195,9 @@ class Parameters:
     6 to 8 with interval of 0.2.
     """
 
-    class_size = fitness_array[1] - fitness_array[0]
+    class_size: float = fitness_array[1] - fitness_array[0]
     """
-    The size of a bin in fitness_array
+    The size of a bin in fitness_array.
     """
     
     n_naive_precursors: int = 2000
@@ -208,14 +213,15 @@ class Parameters:
     affinities_history: tuple[float] = (0., 6., 7., 8., 9.)
     """
     Affinity thresholds for counting cells for the simulation history.
+    Include 0 to count the total number of B cells.
     """
     
     C0: float = 0.008
     """
-    Value to normalize concentrations.
+    Value to normalize concentrations (nM).
     """
 
-    naive_target_fractions: tuple = (0.8, 0.15, 0.05)
+    naive_target_fractions: tuple = (0.8, 0.2) # (0.8, 0.15, 0.05) XXXX
     assert np.isclose(sum(naive_target_fractions), 1)
     assert len(naive_target_fractions) == n_ep
     """
@@ -234,7 +240,7 @@ class Parameters:
     
     ag_eff: float = 0.01
     """
-    XXX
+    Weighting between soluble Ag and FDC-bound Ag for calculating effective free Ag.
     """
     
     masking: int = 0
@@ -243,49 +249,59 @@ class Parameters:
     Whether to use epitope masking.
     """
 
-    ig_types: tuple[str] = ('IgM', 'IgG-GCPC', 'IgG-EGCPC')
+    bcell_types: tuple[str] = ('plasmablasts', 'plasma_bcells_GC', 'plasma_bcells_EGC')
     """
-    Types of Ig.
+    Types of Bcell producing Abs.
     """
-    
+
+    ig_types: tuple[str] = ('IgM-natural', 'IgM-immune', 'IgG')
+    """
+    Types of Igs.
+    """
+
+    n_bcell_types: int = len(bcell_types)
+    """
+    Number of types of Bcells producing Abs.
+    """
+
     n_ig_types: int = len(ig_types)
     """
-    Number of types of Ig.
+    Number of types of Igs.
     """
     
     initial_ka: float = 1e-3
     """
-    Initial ka value.
+    Initial ka value (nM-1).
     """
     
     igm0: float = 0.01
     """
-    Initial IgM concentration (nm-1).
+    Initial IgM concentration (nM).
     """
     
     deposit_rate: float = 24.
     """
-    The deposit rate (units XXX).
+    The deposit rate (day-1).
     """
     
     d_igm: float = np.log(2) / 28
     """
-    Decay rate of IgM. XXX
+    Decay rate of IgM (day-1).
     """
     
     d_igg: float = np.log(2) / 28
     """
-    Decay rate of IgG. XXX
+    Decay rate of IgG (day-1).
     """
     
     d_ag: float = 3.
     """
-    Decay rate of antigen. XXX
+    Decay rate of antigen (day-1).
     """
     
     d_IC: float = 0.15
     """
-    Decay rate of immune complexes. XXX
+    Decay rate of immune complexes (day-1).
     """
     
     conc_threshold: float = 1e-10
@@ -295,7 +311,7 @@ class Parameters:
     
     delay: float = 2.
     """
-    Time delay for producing Abs.
+    Time delay for producing Abs (days).
     """
     
     nm_to_m_conversion: int = -9
@@ -308,9 +324,9 @@ class Parameters:
     Maximum ka value allowed (nM-1).
     """
     
-    production: int = 1
+    production: float = 1
     """
-    Production XXX.
+    Ab production rate (day-1).
     """
     
     nmax: float = 10.
@@ -318,22 +334,76 @@ class Parameters:
     Tcell amount for seeding GCs.
     """
     
-    tmax: int = 360
+    tmax: int = 200
     """
-    Maximum time allowed (days).
+    Maximum time allowed for n_tcells_arr (days).
     """
     
     n_tmax: int = 1200
     """
-    . XXX
+    Maximum number of Tcells.
     """
 
     tspan_dt: float = 0.25
     """
     Timestep to save results in history (days).
     """
+    
+    d_Tfh: float = 0.01
+    """
+    Time constant in the exponential decay of tcells (day-1).
+    """
+    
+    r_igm: float = igm0 * production / n_gc
+    """
+    Rate of IgM production (nM/day).
+    """
+    
+    r_igg: float = igm0 * production / n_gc
+    """
+    Rate of IgG production (nM/day).
+    """
 
-    history_times: tuple = tuple(np.arange(0,  tmax + tspan_dt, tspan_dt))
+    ########################################
+    # Specific to bolus doses.
+    ########################################
+
+    vax_timing: tuple[int] = (28, 180, 180)
+    """
+    The timing of vaccinations (days).
+    """
+    
+    vax_idx: int = 0
+    """
+    The index of the current vaccination timing.
+    """
+
+    ag0: float = 10.
+    """
+    Initial antigen concentration (nM-1).
+    """
+
+    dose_time: float = 0.
+    """
+    Time to give the vaccine dose (days).
+    """
+
+    dose: float = ag0
+    """
+    Concentration of Ag in the dose (nM).
+    """
+
+    egc_stop_time: float = 6.
+    """
+    The time to stop EGCs (days).
+    """
+
+    n_timesteps = int(vax_timing[vax_idx] / dt)
+    """
+    Number of timesteps for this simulation.
+    """
+
+    history_times: tuple = tuple(np.arange(0,  vax_timing[vax_idx], tspan_dt))
     """
     Timepoints to save results in history (days).
     """
@@ -342,122 +412,42 @@ class Parameters:
     """
     Number of history timepoints.
     """
-    
-    d_Tfh: float = 0.01
-    """
-    Rate of change of Tfh. XXX
-    """
-    
-    r_igm: float = igm0 * production / n_gc
-    """
-    Rate of IgM production.
-    """
-    
-    r_igg: float = igm0 * production / n_gc
-    """
-    Rate of IgG production.
-    """
 
-    ########################################
-    # Specific to bolus doses.
-    ########################################
-
-    vax_timing: tuple[int] = (28, 28, 28)
+    overlap_matrix: tuple = tuple(map(tuple, np.eye(n_ep)))
     """
-    The timing of vaccinations, in days.
-    """
-    
-    vax_idx: int = 0
-    """
-    The index of the current vaccination timing.
-    """
-    
-    k: int = 0
-    """
-    Value of k. XXX
-    """
-    
-    T: int = 0
-    """
-    Value of T. XXX
-    """
-
-    ag0: float = 10.
-    """
-    Initial antigen concentration (nM-1).
-    """
-
-    F0: int =  0
-    """XXX"""
-
-    dose_time: float = 0.
-    """
-    Time to give the vaccine dose.
-    """
-
-    dose: float = ag0
-    """
-    Concentration of Ag in the dose.
-    """
-
-    egc_stop_time: float = 6.
-    """
-    The time to stop EGCs.
-    """
-
-    n_timesteps = int(vax_timing[vax_idx] / dt)
-    """
-    Number of timesteps for this simulation.
+    Defines the epitope overlap matrix.
     """
     
     ################################################################
     # Properties are not included when calling dataclasses.fields.
     ################################################################
-    
-    @property
-    def ag_ep_matrix(self) -> np.ndarray:
-        """ Returns a n_ep by n_ag matrix with 1's and 0's specifying
-        which antigens have which epitopes. """
-        # TODO: read from file -> could also discretize from a matrix that specifiesx
-        # rho values (conservation) of epitopes across strains n_ep_per_ag x n_ag.
-        # i.e. rho[0, 1] = how similar ep0 on ag2 is to ep0 on ag 1.
-        ag_ep_matrix = np.array([
-            [1, 1], #both antigens share ep 0
-            [1, 0], #antigen 1 has eps 1, 2
-            [1, 0],
-            [0, 1], #antigen 2 has eps 3, 4
-            [0, 1]
-        ])
-        assert(ag_ep_matrix.shape == (self.n_ep, self.n_ag))
-        return ag_ep_matrix
-
-    @property
-    def overlap_matrix(self) -> np.ndarray:
-        """Defines the epitope overlap matrix. XXX move to attributes"""
-        overlap_matrix = np.eye(self.n_ep)
-        # XXX adjust if there is some overlap
-        return overlap_matrix
-
-
     @property
     def sigma(self) -> np.ndarray:
         """Get sigma: covariance matrix per epitope. XXX move to attributes"""
         sigma = np.zeros((self.n_ep, self.n_var, self.n_var))
-        sigma[0] = np.array([
-            [1, 0.4, 0.4],
-            [0.4, 1, 0],
-            [0.4, 0, 1]
+        sigma[0] = np.array([ # XXX
+            [1, 0.4],
+            [0.4, 1]
         ])
         sigma[1] = np.array([
-            [1, 0.95, 0.4],
-            [0.95, 1., 0],
-            [0.4, 0., 1]
+            [1, 0.95],
+            [0.95, 1]
         ])
-        sigma[2] = np.array([
-            [1, 0.4, 0.95],
-            [0.4, 1, 0],
-            [0.95, 0, 1]
-        ])
+        # sigma[0] = np.array([
+        #     [1, 0.4, 0.4],
+        #     [0.4, 1, 0],
+        #     [0.4, 0, 1]
+        # ])
+        # sigma[1] = np.array([
+        #     [1, 0.95, 0.4],
+        #     [0.95, 1., 0],
+        #     [0.4, 0., 1]
+        # ])
+        # sigma[2] = np.array([
+        #     [1, 0.4, 0.95],
+        #     [0.4, 1, 0],
+        #     [0.95, 0, 1]
+        # ])
         return sigma
 
 
@@ -550,6 +540,14 @@ class Parameters:
                 setattr(self, key, value)
 
 
+    def convert_tuple_to_list(self, nested_tuple: tuple) -> list:
+        """Turns nested tuple into a nested list."""
+        if isinstance(nested_tuple, tuple):
+            return [self.convert_tuple_to_list(item) for item in nested_tuple]
+        else:
+            return nested_tuple
+
+
     def find_previous_experiment(self) -> str:
         """Find experiment directory for previous experiment.
         
@@ -572,12 +570,18 @@ class Parameters:
 
             previous_exp = True
 
-            data_dir = os.path.join(self.experiment_dir, experiment)
-            exp_params = utils.read_json(data_dir, self.param_file_name)
+            file_path = os.path.join(
+                self.experiment_dir, experiment, self.param_file_name
+            )
+            exp_params = utils.read_json(file_path)
             
             for param, value in param_dict.items():
 
+                if param == 'updated_params_file':
+                    continue
                 if param != 'vax_idx':
+                    if isinstance(value, tuple):  # Tuples are read as lists
+                        value = self.convert_tuple_to_list(value)
                     if value != exp_params[param]:
                         previous_exp = False
                 else:

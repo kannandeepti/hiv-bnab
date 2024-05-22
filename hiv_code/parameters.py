@@ -69,19 +69,21 @@ class Parameters:
     The number of residues.
     """
     
-    n_var: int = 3
+    n_var: int = 1
     """
-    The number of variants.
+    The number of variants. Just 1 for HIV in the epitope representation
     """
 
     n_ag: int = 2
-    assert n_ag <= n_var
     """
     The number of antigens in circulation.
     """
     
     f_ag: tuple[float] = (0.5, 0.5)
     """ fraction of antigen i of total antigen. """
+
+    fdc_capacity: float = 1.0
+    """ TODO: how to choose this value? how does it compare to C0?"""
     
     n_ep: int = 3
     """

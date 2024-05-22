@@ -1,26 +1,25 @@
 import copy
 from enum import Enum
-from typing import Callable
 import numpy as np
-from . import utils
-from .parameters import Parameters
-from .bcells import Bcells
+from parameters import Parameters
+from bcells import Bcells
 
 
 class ConcentrationIdx(Enum):
-    """Class for recording which indices in arrays correspond to which Ag/Ab types."""
-    # For masked_ag_conc
+    """Class for recording which indices in arrays correspond to which Ag types.
+    
+    For masked_ag_conc.
+
+    SOLUBLE: index of the soluble Ag
+    IC_FDC: start index of the FDC-bound Ag
+    """
     SOLUBLE = 0
     IC_FDC = 1
-    # For ab_conc and ab_ka
-    IGM_NAT = 0
-    IGM_IMM = 1
-    IGG = 2
 
 
 class Concentrations(Parameters):
 
-    def __init__(self):
+    def __init__(self, updated_params_file: str | None):
         """Initialize concentration arrays.
         
         Attributes:
@@ -41,23 +40,26 @@ class Concentrations(Parameters):
                 (shape=(n_var, n_ig_types, n_ep))
         """
         super().__init__()
+        self.update_parameters_from_file(updated_params_file)
 
-        self.ig_types = ['IgM', 'IgG-GCPC', 'IgG-EGCPC']
-        self.n_ig_types = len(self.ig_types)
         self.ig_types_arr = np.array([[0, 0, 0], [1, 0 ,0], [0, 1, 1]])
+
+        assert self.ig_types_arr.shape[0] == self.n_ig_types
+        assert self.ig_types_arr.shape[1] == self.n_bcell_types
 
         self.ag_conc = np.zeros((self.n_ep + 1, self.n_ag))
         self.ab_conc = np.zeros((self.n_ig_types, self.n_ep))
         self.ab_conc[0] = self.igm0 / self.n_ep
         self.ab_decay_rates = np.array([0, self.d_igm, self.d_igg])[:, np.newaxis]
 
-        self.ab_ka_condense_fn: Callable[
-            [np.ndarray], np.ndarray
-        ] = lambda x: x[:self.n_ag].mean(axis=0)  # Take average over all n_ag variants for ab_ka
-
         self.ab_ka = np.ones(
             (self.n_var, self.n_ig_types, self.n_ep)
         ) * self.initial_ka
+
+    
+    def ab_ka_condense_fn(self, x: np.ndarray) -> np.ndarray:
+        """Take average over all n_ag variants for ab_ka."""
+        return x[:self.n_ag].mean(axis=0) 
 
     
     def get_IC(
@@ -92,52 +94,50 @@ class Concentrations(Parameters):
         return IC
 
 
-    def get_masked_ag_conc(self) -> np.ndarray:
+    def get_ag_eff_conc(self) -> np.ndarray:
         """Get Ag concentration after applying epitope masking.
         
         Returns:
-            masked_ag_conc: Ag concentration after epitope masking.
-                np.ndarray (shape=(2, n_ep, n_ag)). masked_ag_conc[0]
-                corresponds to soluble Ag and masked_ag_conc[1] corresponds
-                to IC-bound Ag.
+            ag_eff_conc: Ag concentration after epitope masking.
+                np.ndarray (shape=(n_ep, n_ag)).
         """
         masked_ag_conc = np.zeros((2, self.n_ep, self.n_ag))
 
-        if self.ag_conc.sum() == 0:
-            return masked_ag_conc
+        if self.ag_conc.sum() != 0:
         
-        total_ab_conc_per_epitope = self.ab_conc.sum(axis=0)  # shape n_ep
-        weighted_total_ab_conc_per_epitope = (
-            self.ab_conc * self.ab_ka_condense_fn(self.ab_ka)
-        ).sum(axis=0) # shape n_ep
+            total_ab_conc_per_epitope = self.ab_conc.sum(axis=0)  # shape n_ep
+            weighted_total_ab_conc_per_epitope = (
+                self.ab_conc * self.ab_ka_condense_fn(self.ab_ka)
+            ).sum(axis=0) # shape n_ep
 
-        total_ab_conc_per_epitope_with_overlap = (
-            total_ab_conc_per_epitope @ self.overlap_matrix
-        ) # shape n_ep
+            total_ab_conc_per_epitope_with_overlap = (
+                total_ab_conc_per_epitope @ np.array(self.overlap_matrix)
+            ) # shape n_ep
 
-        average_ka_per_epitope_with_overlap = ((
-            weighted_total_ab_conc_per_epitope @ self.overlap_matrix
-        ) / total_ab_conc_per_epitope_with_overlap) # shape n_ep
+            average_ka_per_epitope_with_overlap = ((
+                weighted_total_ab_conc_per_epitope @ np.array(self.overlap_matrix)
+            ) / total_ab_conc_per_epitope_with_overlap) # shape n_ep
 
-        total_ag_conc = self.ag_conc.sum(axis=0)  # shape n_ag
+            total_ag_conc = self.ag_conc.sum(axis=0)  # shape n_ag
 
-        IC = self.get_IC(
-            total_ab_conc_per_epitope_with_overlap[:, np.newaxis] / 5,  # XXX should we change from 5, shape n_ep
-            total_ag_conc,                               # XXX shape n_ag
-            average_ka_per_epitope_with_overlap[:, np.newaxis]          # XXX shape n_ep
-        )
+            IC = self.get_IC(
+                total_ab_conc_per_epitope_with_overlap[:, np.newaxis] / 5,  # XXX should we change from 5, shape n_ep
+                total_ag_conc,                                              # XXX shape n_ag
+                average_ka_per_epitope_with_overlap[:, np.newaxis]          # XXX shape n_ep
+            )
 
-        total_free_ag_conc = total_ag_conc - self.masking * IC # shape (n_ep, n_ag)
+            total_free_ag_conc = total_ag_conc - self.masking * IC # shape (n_ep, n_ag)
 
-        masked_ag_conc[ConcentrationIdx.SOLUBLE.value] = total_free_ag_conc * (
-            self.ag_conc[ConcentrationIdx.SOLUBLE.value] / total_ag_conc
-        )
+            masked_ag_conc[ConcentrationIdx.SOLUBLE.value] = total_free_ag_conc * (
+                self.ag_conc[ConcentrationIdx.SOLUBLE.value] / total_ag_conc
+            )
 
-        masked_ag_conc[ConcentrationIdx.IC_FDC.value] = total_free_ag_conc * (
-            self.ag_conc[ConcentrationIdx.IC_FDC.value:].sum(axis=0) / total_ag_conc
-        )
+            masked_ag_conc[ConcentrationIdx.IC_FDC.value] = total_free_ag_conc * (
+                self.ag_conc[ConcentrationIdx.IC_FDC.value:].sum(axis=0) / total_ag_conc
+            )
 
-        return masked_ag_conc
+        ag_eff_conc = np.array([self.ag_eff, 1]) @ masked_ag_conc.transpose((1, 0, 2))
+        return ag_eff_conc
     
 
     def get_deposit_rates(
@@ -278,13 +278,10 @@ class Concentrations(Parameters):
             ab_decay: Ab decay rates. np.ndarray (shape=(n_ig_types, n_ep))
             current_time: Current simulation time from Simulation class.
         """
-        self.ag_conc[ConcentrationIdx.SOLUBLE.value] += (
-            ag_decay * self.dt + self.F0 * 
-            np.exp(self.k * current_time) * (current_time < self.T * self.dt)
-        )
+        self.ag_conc[ConcentrationIdx.SOLUBLE.value] += ag_decay * self.dt
 
         self.ag_conc[ConcentrationIdx.IC_FDC.value:] += (
-            deposit_rates.sum(axis=1).T * self.dt + 
+            deposit_rates.sum(axis=1).T * self.dt - 
             self.ag_conc[ConcentrationIdx.IC_FDC.value:] * self.d_IC * self.dt
         )
 
@@ -313,42 +310,46 @@ class Concentrations(Parameters):
                 EGC-derived.
         
         Returns:
-            ig_new: np.ndarray (shape=(n_ig_types, n_ep))
-            ka_new: np.ndarray (shape=(n_var, n_ig_types, n_ep))
+            ig_new: np.ndarray (shape=(n_bcell_types, n_ep))
+            ka_new: np.ndarray (shape=(n_var, n_bcell_types, n_ep))
         """
-        threshold = current_time - self.delay
-        ig_new = np.zeros((self.n_ig_types, self.n_ep))
-        ka_new = np.array([ig_new for _ in range(self.n_var)]) # (n_var, n_ig_types, n_ep)
-        affinity = np.empty(shape=(self.n_var, self.n_ig_types), dtype=object) # (n_var, n_ig_types)
-        target = np.empty(self.n_ig_types, dtype=object)
+        ig_new = np.zeros((self.n_bcell_types, self.n_ep))
+        ka_new = np.array([ig_new for _ in range(self.n_var)]) # (n_var, n_bcell_types, n_ep)
+        affinity = np.empty(shape=(self.n_var, self.n_bcell_types), dtype=object) # (n_var, n_bcell_types)
+        target = np.empty(self.n_bcell_types, dtype=object)
 
         for var in range(self.n_var):
+
             bcell_list = [plasmablasts, plasma_bcells_gc, plasma_bcells_egc]
-            for ig_idx, bcells in enumerate(bcell_list):
-                affinity[var, ig_idx] = bcells.variant_affinities[:, var]
+            assert len(bcell_list) == self.n_bcell_types
+
+            for bcell_idx, bcells in enumerate(bcell_list):
+                affinity[var, bcell_idx] = bcells.variant_affinities[:, var]
                 # GC derived plasma cell antibodies only contribute to concentration
                 # after delay time of 2 days
-                threshold_value = {
-                    ConcentrationIdx.IGG.value: (bcells.activated_time < threshold)
-                }.get(ig_idx, 1)
-                target[ig_idx] = bcells.target_epitope * threshold_value
+                if bcell_idx in [0, 1]:  # plasmablasts, PC-GC
+                    threshold_values = bcells.activated_time < current_time - self.delay
+                else:                 # PC-EGC
+                    threshold_values = 1
 
-        for ig_idx, ig_type in enumerate(self.ig_types):
+                target[bcell_idx] = (bcells.target_epitope + 1) * threshold_values  # Adding + 1 because 0 needs to mean nonmatching.
+
+        for bcell_idx, _ in enumerate(self.bcell_types):
             for ep in range(self.n_ep):
-                if np.any(target[ig_idx].flatten() == ep):
-                    ig_new[ig_idx, ep] = (
-                        (target[ig_idx] == ep).sum() * 
-                        self.r_igm * (ig_idx == 0) + 
-                        self.r_igg * (ig_idx > 0)
+                if np.any(target[bcell_idx].flatten() == ep + 1):
+
+                    ig_new[bcell_idx, ep] = (
+                        (target[bcell_idx] == ep + 1).sum() * 
+                        (self.r_igm * (bcell_idx == 0) + self.r_igg * (bcell_idx > 0))
                     )
 
                     for var in range(self.n_var):
-                        target_idx = target[ig_idx] == ep
+                        target_idx = target[bcell_idx] == ep + 1
                         log10_aff = (
-                            affinity[var, ig_idx][target_idx] + 
+                            affinity[var, bcell_idx][target_idx] + 
                             self.nm_to_m_conversion
                         )
-                        ka_new[var, ig_idx, ep] = np.mean(10 ** log10_aff)
+                        ka_new[var, bcell_idx, ep] = np.mean(10 ** log10_aff)
         
         return ig_new, ka_new
     
@@ -435,10 +436,14 @@ class Concentrations(Parameters):
         )
 
         # Update amounts and Ka
-        self.ab_conc[ConcentrationIdx.IC_FDC.value:] += np.vstack([
-            ig_new[ConcentrationIdx.IGM_NAT.value, :],
-            ig_new[ConcentrationIdx.IGM_IMM.value:, :].sum(axis=0)
-        ]) * self.dt
+        self.ab_conc[self.ig_types.index('IgM-immune')] += ig_new[
+            self.bcell_types.index('plasmablasts')
+        ] * self.dt
+
+        self.ab_conc[self.ig_types.index('IgG')] += ig_new[
+            self.bcell_types.index('plasma_bcells_GC'):  # GC and EGC PCs
+        ].sum(axis=0) * self.dt
+
         self.update_ka(ab_conc_copy, ab_decay, ig_new, ka_new)
 
         self.ab_conc[self.ab_conc < self.conc_threshold] = 0
