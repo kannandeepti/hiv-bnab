@@ -7,10 +7,10 @@ from typing import Self, Any
 
 import numpy as np
 
-import utils
-from parameters import Parameters
-from bcells import Bcells
-from concentrations import Concentrations
+from . import utils
+from .parameters import Parameters
+from .bcells import Bcells
+from .concentrations import Concentrations
 
 
 
@@ -431,7 +431,7 @@ class Simulation(Parameters):
         Update the history dictionary.
         """
         self.tcell: float = self.n_tcells_arr[self.timestep_idx]
-        self.ag_eff_conc = self.concentrations.get_ag_eff_conc()
+        self.ag_eff_conc = self.concentrations.get_eff_ic_fdc_conc() #(n_ep,)
 
         # Before running GCs, create temporary memory bcells and store exported
         # memory cells in temporary_memory_bcells. At the end, append them to the

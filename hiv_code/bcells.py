@@ -3,8 +3,8 @@ from typing import Self
 
 import numpy as np
 
-import utils
-from parameters import Parameters
+from . import utils
+from .parameters import Parameters
 
 
 
@@ -13,8 +13,8 @@ class Bcells(Parameters):
 
     def __init__(
         self, 
-        updated_params_file: str | None, 
-        initial_number: str | None=None
+        updated_params_file: str | None=None, 
+        initial_number: int | None=None
     ):
         """Initialize attributes.
         

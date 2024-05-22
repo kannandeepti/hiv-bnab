@@ -257,7 +257,7 @@ class Parameters:
     Initial ka value.
     """
     # No IgM in this calculation
-    #igm0: float = 0.01
+    igm0: float = 0.01
     """
     Initial IgM concentration (nm-1).
     """
@@ -431,11 +431,9 @@ class Parameters:
         # rho values (conservation) of epitopes across strains n_ep_per_ag x n_ag.
         # i.e. rho[0, 1] = how similar ep0 on ag2 is to ep0 on ag 1.
         ag_ep_matrix = np.array([
-            [1, 1], #both antigens share ep 0
-            [1, 0], #antigen 1 has eps 1, 2
-            [1, 0],
-            [0, 1], #antigen 2 has eps 3, 4
-            [0, 1]
+            [1, 1], #both antigens share ep 1
+            [1, 0], #antigen 1 has ep 2
+            [0, 1]  #antigen 2 has ep 3
         ])
         assert(ag_ep_matrix.shape == (self.n_ep, self.n_ag))
         return ag_ep_matrix

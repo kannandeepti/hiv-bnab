@@ -14,7 +14,6 @@ import copy
 from enum import Enum
 from typing import Callable
 import numpy as np
-from . import utils
 from .parameters import Parameters
 from .bcells import Bcells
 
@@ -35,8 +34,6 @@ class Concentrations(Parameters):
                 (shape=(n_ep,))
         """
         super().__init__()
-        self.update_parameters_from_file(updated_params_file)
-
         self.n_bcell_types = 2 #GC and EGC (no plasmablasts)
         #only consider IgG antibodies in HIV setting
         self.ig_types_arr = np.array([[1, 1]])
@@ -84,17 +81,17 @@ class Concentrations(Parameters):
         return IC
 
 
-    def get_masked_ag_conc(self) -> np.ndarray:
+    def get_eff_ic_fdc_conc(self) -> np.ndarray:
         """Get [IC-FDC] free concentration after applying epitope masking.
         Assumes antigen is masked directly on FDC and that total [IC-FDC]
         per epitope is fixed.
         
         Returns:
-            masked_ag_conc: [IC-FDC] after epitope masking.
+            eff_ag_conc: [IC-FDC] after epitope masking.
                 np.ndarray (shape=(n_ep,)).
         """
         if self.ic_fdc_conc.sum() == 0:
-            return masked_ag_conc
+            return self.ic_fdc_conc
         
         total_ab_conc_per_epitope = self.ab_conc # shape n_ep
         weighted_total_ab_conc_per_epitope = (
@@ -268,7 +265,6 @@ class Concentrations(Parameters):
     def update_concentrations(
         self, 
         current_time: float,
-        plasmablasts: Bcells,
         plasma_bcells_gc: Bcells, 
         plasma_bcells_egc: Bcells
     ) -> None:
