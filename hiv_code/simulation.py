@@ -93,20 +93,16 @@ class Simulation(Parameters):
                 )),
             },
             'conc': {
-                'ag_conc': np.zeros((
+                'ic_fdc_conc': np.zeros((
                     self.n_history_timepoints, 
-                    self.n_ep + 1, 
-                    self.n_ag, 
+                    self.n_ep 
                 )),
                 'ab_conc': np.zeros((
                     self.n_history_timepoints, 
-                    self.n_ig_types,
                     self.n_ep,
                 )),
                 'ab_ka': np.zeros((
                     self.n_history_timepoints, 
-                    self.n_var, 
-                    self.n_ig_types, 
                     self.n_ep, 
                 )),
             },
@@ -238,7 +234,6 @@ class Simulation(Parameters):
         self.egc_bcells = copy.deepcopy(self.dummy_bcells)
         self.plasma_bcells = copy.deepcopy(self.dummy_bcells)
         self.memory_bcells = copy.deepcopy(self.dummy_bcells)
-        self.plasmablasts = copy.deepcopy(self.dummy_bcells) # Doing nothing right now.
 
         self.set_death_rates()
     
@@ -418,7 +413,7 @@ class Simulation(Parameters):
                     bcells.lineage, bins=np.arange(self.n_naive_precursors + 1) + 0.5
                 )[0]
         
-        self.history['conc']['ag_conc'][history_idx] = self.concentrations.ag_conc
+        self.history['conc']['ic_fdc_conc'][history_idx] = self.concentrations.ic_fdc_conc
         self.history['conc']['ab_conc'][history_idx] = self.concentrations.ab_conc
         self.history['conc']['ab_ka'][history_idx] = self.concentrations.ab_ka
 
@@ -463,7 +458,7 @@ class Simulation(Parameters):
             utils.DerivedCells.EGC.value
         )
         self.concentrations.update_concentrations(
-            self.current_time, self.plasmablasts, plasma_bcells_gc, plasma_bcells_egc
+            self.current_time, plasma_bcells_gc, plasma_bcells_egc
         )
 
         self.update_history()

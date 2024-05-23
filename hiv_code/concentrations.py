@@ -20,7 +20,7 @@ from .bcells import Bcells
 
 class Concentrations(Parameters):
 
-    def __init__(self):
+    def __init__(self, updated_params_file: str | None=None):
         """Initialize concentration arrays.
         
         Attributes:
@@ -34,6 +34,8 @@ class Concentrations(Parameters):
                 (shape=(n_ep,))
         """
         super().__init__()
+        self.update_parameters_from_file(updated_params_file)
+        self.bcell_types = ["plasmaGC", "plasmaEGC"]
         self.n_bcell_types = 2 #GC and EGC (no plasmablasts)
         #only consider IgG antibodies in HIV setting
         self.ig_types_arr = np.array([[1, 1]])
@@ -248,7 +250,7 @@ class Concentrations(Parameters):
         current_sum = (ab_conc_copy + self.dt * ab_decay) * self.ab_ka
         new_ka = (
             current_sum + 
-            self.ig_types_arr @ (ig_PC * ka_PC[0] * self.dt) #XXX check shape
+            (self.ig_types_arr @ (ig_PC * ka_PC[0] * self.dt)).reshape((self.n_ep,)) #XXX check shape
         ) / (self.ab_conc + self.epsilon)
 
         new_ka[self.ab_conc == 0] = 0

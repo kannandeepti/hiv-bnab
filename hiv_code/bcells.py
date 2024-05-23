@@ -167,7 +167,7 @@ class Bcells(Parameters):
         
         Args:
             conc_array: the effective Ag concentration for the epitope that the bcell
-            is targeting. np.ndarray (shape=(n_cells, n_ag)).
+            is targeting. np.ndarray (shape=(n_cells,)).
             variant_idx: the variant Ag idx that is being used to calculate captured Ag.
 
         Returns:
@@ -176,8 +176,8 @@ class Bcells(Parameters):
         """
         conc_term = conc_array / self.C0
         aff_term = 10 ** (
-            self.variant_affinities[:, np.array(self.ag_idxs)] - self.E0
-        )
+            self.variant_affinities[:, 0] - self.E0
+        ) #(n_cells,)
         activation_signal = (conc_term * aff_term) ** self.w2
 
         if self.w1 > 0:  # Alternative Ag capture model
@@ -185,7 +185,6 @@ class Bcells(Parameters):
             denom = self.w1 + activation_signal
             activation_signal = num / denom
 
-        activation_signal = activation_signal.sum(axis=1)  # Sum over all Ags
         min_arr = np.minimum(activation_signal, 1)
         activated = min_arr > np.random.uniform(size=activation_signal.shape)
         return activation_signal, activated
@@ -222,19 +221,18 @@ class Bcells(Parameters):
         
         Args:
             conc: Effective Ag concentration for each epitope.
-                np.ndarray (shape=(n_ep, n_ag))
+                np.ndarray (shape=(n_ep,))
             
         Returns:
             incoming_naive: Indices of Bcells that will enter the GC.
                 np.ndarray (shape=(n_cells))
         """
-        conc_array = np.zeros(shape=(self.lineage.size, self.n_ag))
+        conc_array = np.zeros(shape=(self.lineage.size,))
         for ep in range(self.n_ep):
             matching_epitope = self.target_epitope == ep
             conc_array += (
                 conc[ep] * 
-                matching_epitope[:, np.newaxis] * 
-                (self.activated_time == 0)[:, np.newaxis]
+                matching_epitope * (self.activated_time == 0)
             )
 
         activation_signal, activated = self.get_activation(conc_array)
@@ -257,16 +255,17 @@ class Bcells(Parameters):
         
         Args:
             conc: Effective Ag concentration for each epitope.
-                np.ndarray (shape=(n_ep, n_ag))
+                np.ndarray (shape=(n_ep,))
             tcell: Current tcell amount.
             
         Returns:
             incoming_naive: Indices of Bcells that will undergo birth.
                 np.ndarray (shape=(n_cells))
         """
-        conc_array = np.zeros(shape=(self.lineage.size, self.n_ag))
+        conc_array = np.zeros(shape=(self.lineage.size,))
         for ep in range(self.n_ep):
-            conc_array += conc[ep] * (self.target_epitope == ep)[:, np.newaxis]
+            #conc[ep] is a float, target_epitope is (nbcells,)
+            conc_array += conc[ep] * (self.target_epitope == ep)
 
         activation_signal, activated = self.get_activation(conc_array)
 
@@ -346,7 +345,7 @@ class Bcells(Parameters):
 
         Args:
             conc: Effective Ag concentration for each epitope.
-                np.ndarray (shape=(n_ep, n_ag))
+                np.ndarray (shape=(n_ep,))
 
         Returns:
             Copies of the seeding Bcells.
@@ -360,7 +359,7 @@ class Bcells(Parameters):
         
         Args:
             conc: Effective Ag concentration for each epitope.
-                np.ndarray (shape=(n_ep, n_ag))
+                np.ndarray (shape=(n_ep,))
             tcell: Current tcell amount.
 
         Returns:

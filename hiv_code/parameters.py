@@ -34,6 +34,11 @@ class Parameters:
     File name for writing the simulation data.
     """
 
+    history_file_name: str = "history.pkl"
+    """
+    File name for writing the history.
+    """
+
     overwrite: bool = True
     """
     Whether to overwrite existing files.
@@ -448,23 +453,18 @@ class Parameters:
 
     @property
     def sigma(self) -> np.ndarray:
-        """Get sigma: covariance matrix per epitope. XXX move to attributes"""
+        """Get sigma: covariance matrix per epitope. 
+        
+        For HIV project, we don't consider variants but instead
+        the circulating epitope distribution. so there are no correlations
+        in affinity changes between epitopes.
+
+        XXX move to attributes"""
         sigma = np.zeros((self.n_ep, self.n_var, self.n_var))
-        sigma[0] = np.array([
-            [1, 0.4, 0.4],
-            [0.4, 1, 0],
-            [0.4, 0, 1]
-        ])
-        sigma[1] = np.array([
-            [1, 0.95, 0.4],
-            [0.95, 1., 0],
-            [0.4, 0., 1]
-        ])
-        sigma[2] = np.array([
-            [1, 0.4, 0.95],
-            [0.4, 1, 0],
-            [0.95, 0, 1]
-        ])
+        for ep_idx in range(self.n_ep):
+            sigma[ep_idx] = np.array([
+                [1.]
+            ])
         return sigma
 
 
