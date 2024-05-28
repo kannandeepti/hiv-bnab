@@ -15,7 +15,21 @@ from .concentrations import Concentrations
 
 
 class Simulation(Parameters):
+    """Class for running the simulation.
 
+    All the parameters from Parameters are included.
+
+    Attributes:
+        precalculated_dEs: Precalculated affinity changes for all cells
+            to all variants. This is stored in Simulation so that it doesn't
+            need to be copied to the Bcell class, which saves a lot of memory
+            and a bit of time.
+            np.ndarray (shape=(n_gc, n_cell, n_res, n_var)).
+        attributes_to_replace: List of attributes that need to be replaced
+            when reading a previous checkpoint pickle file. This will update
+            the simulation to the correct state.
+        history: Dict containing the history of the simulation. See reset_history.
+    """
 
     def __init__(self, updated_params_file: str | None=None, parallel_run_idx: int=0):
         """Initialize attributes.
@@ -24,14 +38,31 @@ class Simulation(Parameters):
         passed, then the parameters are updated from the file.
 
         All other inherited classes of Parameters need to have updated_params_file
-        passed.
+        passed and set the np.random.seed.
         """
         super().__init__()
         self.update_parameters_from_file(updated_params_file)
+        np.random.seed(self.seed)
 
+        self.concentrations = Concentrations(self.updated_params_file)
+        self.set_naive_bcells_per_bin()
+        self.precalculated_dEs = np.zeros(
+            (self.n_gc, self.naive_bcells_int.sum(), self.n_res, self.n_var)
+        )
+
+        self.attributes_to_replace = [
+            'concentrations',
+            'dummy_bcells',
+            'gc_bcells',
+            'memory_gc_bcells',
+            'memory_egc_bcells',
+            'plasma_gc_bcells',
+            'plasma_egc_bcells',
+            'plasmablasts',
+        ]
         self.parallel_run_idx = parallel_run_idx
         self.create_file_paths()
-        self.concentrations = Concentrations(self.updated_params_file)
+        #self.concentrations = Concentrations(self.updated_params_file)
         self.reset_history()
 
 
@@ -45,14 +76,6 @@ class Simulation(Parameters):
                     n_var, n_ep, n_affinities))
                 num_by_lineage: # of GC B cells in each lineage.
                     np.ndarray (shape=(n_history_timepoints, n_gc, n_naive_precursors))
-            egc: Dict containing information about EGCs.
-                num_above_aff: # of EGC B cells with affinities greater than
-                    affinities in affinities_history.
-                    np.ndarray (shape=(n_history_timepoints, n_var, n_ep, n_affinities))
-                num_by_lineage: # of EGC B cells in each lineage.
-                    np.ndarray (shape=(n_history_timepoints, n_naive_precursors))
-            plasma: Similar to egc but with plasma cells.
-            memory: Similar to egc but with memory cells.
             conc: Dict containing information about concentrations.
                 ag_conc: Ag conc array. Similar to Concentrations.ag_conc
                     but with a time dimension.
@@ -63,6 +86,15 @@ class Simulation(Parameters):
                 ab_ka: Kas to each variant. Similar to Concentrations.ab_ka
                     but with a time dimension.
                     np.ndarray (shape=(n_history_timepoints, n_ig_types, n_ep))
+            plasma_gc: Dict containing information about plasma cells from GC.
+                num_above_aff: # of EGC B cells with affinities greater than
+                    affinities in affinities_history.
+                    np.ndarray (shape=(n_history_timepoints, n_var, n_ep, n_affinities))
+                num_by_lineage: # of EGC B cells in each lineage.
+                    np.ndarray (shape=(n_history_timepoints, n_naive_precursors))
+            plasma_egc: Similar to plasma_gc but with plasma cells from EGC.
+            memory_gc: Similar to plasma_gc but with memory cells from GC.
+            memory_egc: Similar to plasma_gc but with memory cells from EGC.
         """
 
         self.history = {
@@ -80,18 +112,6 @@ class Simulation(Parameters):
                     self.n_naive_precursors
                 )),
             },
-            'egc': {
-                'num_above_aff': np.zeros((
-                    self.n_history_timepoints,
-                    self.n_var,
-                    self.n_ep, 
-                    len(self.affinities_history)
-                )),
-                'num_by_lineage': np.zeros((
-                    self.n_history_timepoints, 
-                    self.n_naive_precursors
-                )),
-            },
             'conc': {
                 'ic_fdc_conc': np.zeros((
                     self.n_history_timepoints, 
@@ -106,9 +126,23 @@ class Simulation(Parameters):
                     self.n_ep, 
                 )),
             },
+            'plasma_gc': {
+                'num_above_aff': np.zeros((
+                    self.n_history_timepoints,
+                    self.n_var,
+                    self.n_ep, 
+                    len(self.affinities_history)
+                )),
+                'num_by_lineage': np.zeros((
+                    self.n_history_timepoints, 
+                    self.n_naive_precursors
+                )),
+            },
+
         }
-        self.history['plasma'] = copy.deepcopy(self.history['egc'])
-        self.history['memory'] = copy.deepcopy(self.history['egc'])
+        self.history['memory_gc'] = copy.deepcopy(self.history['plasma_gc'])
+        self.history['plasma_egc'] = copy.deepcopy(self.history['plasma_gc'])
+        self.history['memory_egc'] = copy.deepcopy(self.history['plasma_gc'])
 
     
     def get_parameter_dict(self) -> None:
@@ -147,40 +181,54 @@ class Simulation(Parameters):
                 self.find_previous_experiment(), 
                 self.simulation_file_name
             )
+    
+    def set_naive_bcells_per_bin(self) -> None:
+        """Set the number of naive bcells per fitness bin, only integers allowed."""
+        randu = np.random.uniform(size=self.naive_bcells_arr.shape)
+        self.naive_bcells_int = np.floor(self.naive_bcells_arr + randu).astype(int)
 
 
-    def get_naive_bcells(self) -> Bcells:
+    def get_naive_bcells(self, gc_idx: int) -> Bcells:
         """Create naive bcells.
         
         The numbers of bcells in each fitness class are read from naive_bcells_arr
         with stochastic rounding. An empty naive cell population is created with
         total number from naive_bcells_int. The bcell field arrays for the naive
         bcells are then filled out. These include:
+            the gc lineage index
             the lineage index
             the target epitope
             the variant affinities (note: variants specified in 
                 naive_high_affinity_variants will have the fitness above E0, while 
                 other variants have affinity E0)
             the precalculated dEs from the multivariate log-normal distribution.
+
+        Args:
+            gc_idx: The index of the GC.
+
+        Returns:
+            naive_bcells: The naive bcell population.
         """
-        randu = np.random.uniform(size=self.naive_bcells_arr.shape)
-        naive_bcells_int = np.floor(self.naive_bcells_arr + randu).astype(int)
         naive_bcells = Bcells(
             updated_params_file=self.updated_params_file, 
-            initial_number=naive_bcells_int.sum()
+            initial_number=self.naive_bcells_int.sum()
         )
 
         idx = 0
         for ep in range(self.n_ep):
             for j, fitness in enumerate(self.fitness_array):
-                idx_new = idx + naive_bcells_int[ep, j]
-                naive_bcells.lineage[idx: idx_new] = np.arange(idx, idx_new) + 1
+
+                idx_new = idx + self.naive_bcells_int[ep, j]
+                naive_bcells.gc_lineage[idx:idx_new] = gc_idx
+                naive_bcells.lineage[idx: idx_new] = np.arange(idx, idx_new)
                 naive_bcells.target_epitope[idx: idx_new] = ep
+
                 # Higher affinities
                 naive_bcells.variant_affinities[
                     idx: idx_new, 
                     np.array(self.naive_high_affinity_variants)
                 ] = fitness
+
                 # Low affinities (E0)
                 naive_bcells.variant_affinities[
                     idx: idx_new, 
@@ -193,7 +241,7 @@ class Simulation(Parameters):
                 dE = naive_bcells.get_dE(idx_new, idx, ep)
                 for var in range(self.n_var):
 
-                    naive_bcells.precalculated_dEs[idx:idx_new, :, var] = np.reshape(
+                    self.precalculated_dEs[gc_idx, idx:idx_new, :, var] = np.reshape(
                         dE[:, var], (idx_new - idx, self.n_res), order='F'
                     )
 
@@ -206,13 +254,16 @@ class Simulation(Parameters):
         """Set death rates for all bcell populations."""
         for gc_idx in range(self.n_gc):
             self.gc_bcells[gc_idx].death_rate = self.bcell_death_rate
-        self.egc_bcells.death_rate = self.bcell_death_rate
-        self.plasma_bcells.death_rate = utils.get_death_rate_from_half_life(
+        plasma_rate = utils.get_death_rate_from_half_life(
             self.plasma_half_life, self.dt
         )
-        self.memory_bcells.death_rate = utils.get_death_rate_from_half_life(
+        memory_rate = utils.get_death_rate_from_half_life(
             self.memory_half_life, self.dt
         )
+        self.plasma_gc_bcells.death_rate = plasma_rate
+        self.plasma_egc_bcells.death_rate = plasma_rate
+        self.memory_gc_bcells.death_rate = memory_rate
+        self.memory_egc_bcells.death_rate = memory_rate
     
 
     def create_populations(self) -> None:
@@ -222,18 +273,22 @@ class Simulation(Parameters):
             gc_bcells: list of n_gc empty Bcells
             naive_bcells: list of n_gc Bcells created by get_naive_bcells
             egc_bcells: empty Bcells
-            plasma_bcells: empty Bcells
-            memory_bcells: empty Bcells
+            plasma_gc_bcells: empty Bcells
+            memory_gc_bcells: empty Bcells
+            plasma_egc_bcells: empty Bcells
+            memory_egc_bcells: empty Bcells
             plasmablasts: empty Bcells
         """
         self.dummy_bcells = Bcells(updated_params_file=self.updated_params_file)
 
         self.gc_bcells = [copy.deepcopy(self.dummy_bcells) for _ in range(self.n_gc)]
-        self.naive_bcells = [self.get_naive_bcells() for _ in range(self.n_gc)]
+        self.naive_bcells = [self.get_naive_bcells(gc_idx) for gc_idx in range(self.n_gc)]
 
-        self.egc_bcells = copy.deepcopy(self.dummy_bcells)
-        self.plasma_bcells = copy.deepcopy(self.dummy_bcells)
-        self.memory_bcells = copy.deepcopy(self.dummy_bcells)
+        self.plasma_gc_bcells = copy.deepcopy(self.dummy_bcells)
+        self.plasma_egc_bcells = copy.deepcopy(self.dummy_bcells)
+        self.memory_gc_bcells = copy.deepcopy(self.dummy_bcells)
+        self.memory_egc_bcells = copy.deepcopy(self.dummy_bcells)
+        self.plasmablasts = copy.deepcopy(self.dummy_bcells) # Doing nothing right now.
 
         self.set_death_rates()
     
@@ -256,22 +311,29 @@ class Simulation(Parameters):
             seeding_bcells.add_bcells(seeding_bcells)
 
         # Set activated time
-        seeding_bcells.activated_time = np.ones(
-            shape=seeding_bcells.activated_time.shape
-        ) * (self.current_time + 0.5 * self.dt)
+        seeding_bcells.set_activated_time(self.current_time)
 
+        # Seed
         self.gc_bcells[gc_idx].add_bcells(seeding_bcells)
-
+        
+        # Birth and differentiation
         daughter_bcells = self.gc_bcells[gc_idx].get_daughter_bcells(
             self.ag_eff_conc, self.tcell
         )
         differentiated_bcells = daughter_bcells.differentiate_bcells(
-            self.output_prob, self.output_pc_fraction, utils.DerivedCells.GC.value
+            self.output_prob, 
+            self.output_pc_fraction, 
+            self.precalculated_dEs,
+            mutate=True if self.current_time > self.mutate_start_time else False
         )
         memory_bcells, plasma_bcells, nonexported_bcells = differentiated_bcells
 
+        # Set activated time
+        memory_bcells.set_activated_time(self.current_time)
+        plasma_bcells.set_activated_time(self.current_time)
+
         self.temporary_memory_bcells.add_bcells(memory_bcells)
-        self.plasma_bcells.add_bcells(plasma_bcells)
+        self.plasma_gc_bcells.add_bcells(plasma_bcells)
         self.gc_bcells[gc_idx].add_bcells(nonexported_bcells)
 
 
@@ -283,42 +345,69 @@ class Simulation(Parameters):
 
         Daughter cells are generated, differentiated, and added to their respective populations.
         In the EGC, all cells are exported and have a higher probability of becoming plasma cells.
-        """
-        # seeding_bcells = self.memory_bcells.get_seeding_bcells(conc)
-        # self.egc_bcells.add_bcells(seeding_bcells)
 
-        daughter_bcells = self.egc_bcells.get_daughter_bcells(
-            self.ag_eff_conc, self.tcell
+        tcell is constant at the maximum value in the EGC, and multiplied by n_gc like Leerang does.
+        """
+        daughter_bcells = self.memory_egc_bcells.get_daughter_bcells(
+            self.ag_eff_conc, self.n_tmax * self.n_gc
         )
         differentiated_bcells = daughter_bcells.differentiate_bcells(
             self.egc_output_prob, 
             self.egc_output_pc_fraction,
-            utils.DerivedCells.EGC.value,
+            self.precalculated_dEs,
             mutate=False
         )
-        memory_bcells, plasma_bcells, nonexported_bcells = differentiated_bcells
+        memory_bcells, plasma_bcells, _ = differentiated_bcells
 
-        self.memory_bcells.add_bcells(memory_bcells)
-        self.plasma_bcells.add_bcells(plasma_bcells)
-        self.egc_bcells.add_bcells(nonexported_bcells)
+        # Set activated time
+        memory_bcells.set_activated_time(self.current_time)
+        plasma_bcells.set_activated_time(self.current_time)
+
+        self.plasma_egc_bcells.add_bcells(plasma_bcells)
+        self.memory_egc_bcells.add_bcells(memory_bcells)
 
 
     def read_checkpoint(self) -> None:
         """Read previous simulation checkpoint, seed GCs and EGC.
+
+        memory_gc_bcells will contain all memory cells.
         
         If memory_to_gc_fraction > 0, then memory cells seed the GC.
         """
-        self: Self = utils.read_pickle(self.prev_sim_path)
+        # Read checkpoint and replace attributes
+        old_sim: Self = utils.read_pickle(self.prev_sim_path)
+        for attribute in self.attributes_to_replace:
+            setattr(self, attribute, getattr(old_sim, attribute))
         self.reset_history()
+
+        # Create naive bcells and dEs
+        self.naive_bcells = [
+           self.get_naive_bcells(gc_idx) for gc_idx in range(self.n_gc)
+        ]
+
+
+        # If True, reset GCs and EGC
+        if self.reset_gc_egcs:
+            for gc_idx in range(self.n_gc):
+                self.gc_bcells[gc_idx] = copy.deepcopy(self.dummy_bcells)
+            self.memory_egc_bcells = copy.deepcopy(self.dummy_bcells)
+
+        # Reset activated times
+        for gc_idx in range(self.n_gc):
+            self.gc_bcells[gc_idx].set_activated_time(0, shift=False)
+        self.plasma_gc_bcells.set_activated_time(0, shift=False)
+        self.plasma_egc_bcells.set_activated_time(0, shift=False)
+        self.memory_gc_bcells.set_activated_time(0, shift=False)
+        self.memory_egc_bcells.set_activated_time(0, shift=False)
 
         # Split memory into GCs and EGC
         memory_to_gc_idx = utils.get_sample(
-            np.arange(self.memory_bcells.lineage.size), 
-            p=self.memory_to_gc_fraction
+            np.arange(self.memory_gc_bcells.lineage.size), 
+            p=self.memory_to_gc_fraction,
         )
 
         memory_to_egc_idx = utils.get_other_idx(
-            np.arange(self.memory_bcells.lineage.size), 
+            np.arange(self.memory_gc_bcells.lineage.size), 
             memory_to_gc_idx
         )
 
@@ -326,14 +415,16 @@ class Simulation(Parameters):
         memory_size_to_split = memory_to_gc_idx.size // self.n_gc
         memory_to_gc_idxs = np.split(memory_to_gc_idx[:memory_size_to_split], self.n_gc)
         for gc_idx in range(self.n_gc):
-            memory_to_gc_bcells = self.memory_bcells.get_bcells_from_idx(
+            memory_to_gc_bcells = self.memory_gc_bcells.get_bcells_from_idx(
                 memory_to_gc_idxs[gc_idx]
             )
             self.gc_bcells[gc_idx].add_bcells(memory_to_gc_bcells)
 
         # Seed EGC
-        memory_to_egc_bcells = self.memory_bcells.get_bcells_from_idx(memory_to_egc_idx)
-        self.egc_bcells.add_bcells(memory_to_egc_bcells)
+        memory_to_egc_bcells = self.memory_gc_bcells.get_bcells_from_idx(
+            memory_to_egc_idx
+        )
+        self.memory_egc_bcells.add_bcells(memory_to_egc_bcells)
 
 
     def check_overwrite(self, data: Any, file_path: str) -> None:
@@ -361,58 +452,68 @@ class Simulation(Parameters):
     def update_history(self) -> None:
         """
         Update the history at the current timepoint.
-
-        history: Dict containing the history of the simulation.
-            gc: Dict containing information about GCs.
-                num_above_aff: # of GC B cells with affinities greater than
-                    affinities in affinities_history.
-                    np.ndarray (shape=(n_history_timepoints, n_gc, 
-                    n_var, n_ep, n_affinities))
-                num_by_lineage: # of GC B cells in each lineage.
-                    np.ndarray (shape=(n_history_timepoints, n_gc, n_naive_precursors))
-            egc: Dict containing information about EGCs.
-                num_above_aff: # of EGC B cells with affinities greater than
-                    affinities in affinities_history.
-                    np.ndarray (shape=(n_history_timepoints, n_var, n_ep, n_affinities))
-                num_by_lineage: # of EGC B cells in each lineage.
-                    np.ndarray (shape=(n_history_timepoints, n_naive_precursors))
-            plasma: Similar to egc but with plasma cells.
-            memory: Similar to egc but with memory cells.
-            conc: Dict containing information about concentrations.
-                ag_conc: Ag conc array. Similar to Concentrations.ag_conc
-                    but with a time dimension.
-                    np.ndarray (shape=(n_history_timepoints, n_ep+1, n_ag))
-                ab_conc: Ab conc array. Similar to Concentrations.ab_conc
-                    but with a time dimension.
-                    np.ndarray (shape=(n_history_timepoints, n_ig_types, n_ep))
-                ab_ka: Kas to each variant. Similar to Concentrations.ab_ka
-                    but with a time dimension.
-                    np.ndarray (shape=(n_history_timepoints, n_ig_types, n_ep))
         """
+
+        def _fill_history_nums(
+            history: dict,
+            history_idx: int, 
+            name: str, 
+            bcells: Bcells, 
+            gc_idx: int | None=None
+        ) -> dict:
+            """Fill num_above_aff and num_by_lineage in history.
+            
+            Args:
+                history: Dictionary containing history information.
+                history_idx: Timestep index for the history arrays.
+                name: Name of the key in history to update.
+                bcells: Bcell population to get information from.
+                gc_idx: Index of the GC, if updating GC information.
+
+            Returns:
+                Updated history dictionary.
+            """
+            
+            num_above_aff = bcells.get_num_above_aff()
+            num_by_lineage = np.histogram(
+                bcells.lineage, 
+                bins=np.arange(self.n_naive_precursors + 1) + 0.5
+            )[0]
+            
+            if gc_idx:
+                history[name]['num_above_aff'][history_idx, gc_idx] = num_above_aff
+                history[name]['num_by_lineage'][history_idx, gc_idx] = num_by_lineage
+
+            else:
+                history[name]['num_above_aff'][history_idx] = num_above_aff
+                history[name]['num_by_lineage'][history_idx] = num_by_lineage
+
+            return history
+
         # Find appropriate time index in history array
         time_diff = np.abs(np.array(self.history_times) - self.current_time)
+        assert self.dt > 1e-5
         if time_diff.min() < 1e-5:
             history_idx = np.argmin(time_diff)
         else:
             return
 
+        # GC bcells
         for gc_idx, bcells in enumerate(self.gc_bcells):
-            self.history['gc']['num_above_aff'][
-                history_idx, gc_idx] = bcells.get_num_above_aff()
-            self.history['gc']['num_by_lineage'][
-                history_idx, gc_idx] = np.histogram(
-                    bcells.lineage, bins=np.arange(self.n_naive_precursors + 1) + 0.5
-                )[0]
-            
-        for bcell_name in ['egc', 'plasma', 'memory']:
-            bcells: Bcells = getattr(self, f'{bcell_name}_bcells')
-            self.history[bcell_name]['num_above_aff'][
-                history_idx] = bcells.get_num_above_aff()
-            self.history[bcell_name]['num_by_lineage'][
-                history_idx] = np.histogram(
-                    bcells.lineage, bins=np.arange(self.n_naive_precursors + 1) + 0.5
-                )[0]
-        
+            self.history = _fill_history_nums(
+                self.history, history_idx, 'gc', self.gc_bcells[gc_idx], gc_idx
+            )
+
+        # Plasma and memory bcells, separated by GC/EGC-derived
+        for name in ['plasma', 'memory']:
+            for gc_egc in ['gc', 'egc']:
+                full_name = f'{name}_{gc_egc}'
+                bcells: Bcells = getattr(self, f'{full_name}_bcells')
+                self.history = _fill_history_nums(
+                    self.history, history_idx, full_name, bcells
+                )
+
+        # Concentrations
         self.history['conc']['ic_fdc_conc'][history_idx] = self.concentrations.ic_fdc_conc
         self.history['conc']['ab_conc'][history_idx] = self.concentrations.ab_conc
         self.history['conc']['ab_ka'][history_idx] = self.concentrations.ab_ka
@@ -435,30 +536,25 @@ class Simulation(Parameters):
         self.temporary_memory_bcells = copy.deepcopy(self.dummy_bcells)
         for gc_idx in range(self.n_gc):
             self.run_gc(gc_idx)
-        self.memory_bcells.add_bcells(self.temporary_memory_bcells)
+        self.memory_gc_bcells.add_bcells(self.temporary_memory_bcells)
 
         if self.current_time < self.egc_stop_time:
             self.run_egc()
 
         # Kill bcells
-        # set_birth_rates not necessary here if all bcells have the same birth rate. 
-        # also if gc/egc derived cells have different death rates that needs to be adjusted here
         self.set_death_rates()
         for gc_idx in range(self.n_gc):
             self.gc_bcells[gc_idx].kill()
-        self.egc_bcells.kill()
-        self.plasma_bcells.kill()
-        self.memory_bcells.kill()
+        self.plasma_gc_bcells.kill()
+        self.plasma_egc_bcells.kill()
+        self.memory_gc_bcells.kill()
+        self.memory_egc_bcells.kill()
 
         # Update concentrations
-        plasma_bcells_gc = self.plasma_bcells.get_filtered_by_tag(
-            utils.DerivedCells.GC.value
-        )
-        plasma_bcells_egc = self.plasma_bcells.get_filtered_by_tag(
-            utils.DerivedCells.EGC.value
-        )
         self.concentrations.update_concentrations(
-            self.current_time, plasma_bcells_gc, plasma_bcells_egc
+            self.current_time, 
+            self.plasma_gc_bcells, 
+            self.plasma_egc_bcells
         )
 
         self.update_history()
@@ -472,7 +568,6 @@ class Simulation(Parameters):
         parameter json file.
         """
         start_time = time.perf_counter()
-        np.random.seed(self.seed)
 
         if self.vax_idx > 0:
             self.read_checkpoint()
@@ -481,6 +576,8 @@ class Simulation(Parameters):
             self.create_populations()
 
         import pdb; pdb.set_trace()
+        # Keeping this here so we can verify that dEs are the same across doses.
+        print(f'{self.precalculated_dEs[0, 0, 0, 0] = }')
 
         for timestep_idx in range(self.n_timesteps):
             self.timestep_idx = timestep_idx
@@ -488,13 +585,28 @@ class Simulation(Parameters):
 
             current_time = time.perf_counter()
             elapsed_time = current_time - start_time
-            print(f'{self.current_time = }', f'{elapsed_time:.1f}') # XXX
+
+            if np.isclose(self.current_time, round(self.current_time)):
+                print_string = (
+                    f'Sim time: {self.current_time:.2f}, '
+                    f'Wall time: {elapsed_time:.1f}'
+                )
+                print(print_string)
             
             self.run_timestep()
 
+        # memory_gc_bcells will contain all memory cells to read later.
+        self.memory_gc_bcells.add_bcells(self.memory_egc_bcells)
+
         # Write files
         os.makedirs(self.data_dir)
-        self.check_overwrite(self.history, self.history_path)
+        self.check_overwrite(utils.compress(self.history), self.history_path)
         self.check_overwrite(self.get_parameter_dict(), self.parameter_json_path)
-        self.history = {}  # Empty history to save space
+        
+        # Empty to save space
+        self.history = {}
+        self.naive_bcells = []
+        self.precalculated_dEs = []
         self.check_overwrite(self, self.sim_path)
+
+        print('SIMULATION COMPLETE.')

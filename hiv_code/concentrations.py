@@ -35,11 +35,9 @@ class Concentrations(Parameters):
         """
         super().__init__()
         self.update_parameters_from_file(updated_params_file)
-        self.bcell_types = ["plasmaGC", "plasmaEGC"]
-        self.n_bcell_types = 2 #GC and EGC (no plasmablasts)
         #only consider IgG antibodies in HIV setting
         self.ig_types_arr = np.array([[1, 1]])
-        self.n_ig_types = 1 #only consider IgG antibodies in HIV setting
+        assert(self.n_ig_types == 1) #only consider IgG antibodies in HIV setting
 
         #initialize IC-FDC at capacity according to circulating epitope distribution
         self.ic_fdc_conc = self.ag_ep_matrix @ np.array(self.f_ag) * self.fdc_capacity
@@ -101,11 +99,11 @@ class Concentrations(Parameters):
         ) # shape n_ep
 
         total_ab_conc_per_epitope_with_overlap = (
-            total_ab_conc_per_epitope @ self.overlap_matrix
+            total_ab_conc_per_epitope @ np.array(self.overlap_matrix)
         ) # shape n_ep
 
         average_ka_per_epitope_with_overlap = ((
-            weighted_total_ab_conc_per_epitope @ self.overlap_matrix
+            weighted_total_ab_conc_per_epitope @ np.array(self.overlap_matrix)
         ) / total_ab_conc_per_epitope_with_overlap) # shape n_ep
 
         #consider [IC-FDC free] + [Ab] -> [IC-FDC masked] for each epitope separately
@@ -140,7 +138,6 @@ class Concentrations(Parameters):
         rescale_idx = self.ab_conc < -ab_decay * self.dt 
         rescale_factor = self.ab_conc / (-ab_decay * self.dt) 
         if rescale_idx.flatten().sum():
-            import pdb; pdb.set_trace()
             print(f'Ab reaction rates rescaled. Time={current_time:.2f}')
             ab_decay[rescale_idx] *= rescale_factor[rescale_idx]
             if np.isnan(ab_decay.flatten()).sum():
@@ -250,7 +247,7 @@ class Concentrations(Parameters):
         current_sum = (ab_conc_copy + self.dt * ab_decay) * self.ab_ka
         new_ka = (
             current_sum + 
-            (self.ig_types_arr @ (ig_PC * ka_PC[0] * self.dt)).reshape((self.n_ep,)) #XXX check shape
+            (self.ig_types_arr @ (ig_PC * ka_PC[0] * self.dt)).reshape((self.n_ep,)) 
         ) / (self.ab_conc + self.epsilon)
 
         new_ka[self.ab_conc == 0] = 0

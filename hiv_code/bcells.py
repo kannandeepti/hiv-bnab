@@ -2,19 +2,41 @@ import copy
 from typing import Self
 
 import numpy as np
-
+import scipy
 from . import utils
 from .parameters import Parameters
 
 
 
 class Bcells(Parameters):
+    """Class for Bcells.
 
+    All the parameters from Parameters are included.
+
+    Attributes:
+        birth_rate: bcell birth rate
+        death_rate: bcell death rate. Specific to each type of bcell.
+        initial_number: Initial number of bcells.
+        array_names: Names of the bcell field arrays. This is used for modifying
+            all bcell field arrays at once (replace_all_arrays, filter_all_arrays)
+        mutation_state_array: scipy csr_matrix (shape=(n_cell, n_res)) indicating 0
+            for unmutated residue and 1 for mutated residue. Despite the warning
+            we get about lil_matrix being better than csr_matrix, I tested both
+            and csr_matrix is faster. Using csr_matrix is for saving space.
+        gc_lineage: np.ndarray (shape=(n_cell)) containing the gc lineage 
+            of the bcell.
+        lineage: np.ndarray (shape=(n_cell)) containing the lineage of the bcell.
+        target_epitope: np.ndarray (shape=(n_cell)) containing the targeted epitope.
+        variant_affinites: np.ndarray (shape=(n_cell, n_var)) containing the
+            binding affinity of the bcell with a particular variant.
+        activated_time: np.ndarray (shape=(n_cell)) containing the time the bcell
+            was produced.
+    """
 
     def __init__(
         self, 
         updated_params_file: str | None=None, 
-        initial_number: int | None=None
+        initial_number: str | None=None
     ):
         """Initialize attributes.
         
@@ -24,18 +46,11 @@ class Bcells(Parameters):
         The birth/death rates and bcell field arrays are set as well.
 
         Args:
+            updated_params_file: File path with updated parameters.
             initial_number: Initial number of bcells.
-
-        Attributes:
-            birth_rate: bcell birth rate
-            death_rate: bcell death rate. Specific to each type of bcell.
-            initial_number: Initial number of bcells.
-            array_names: Names of the bcell field arrays. This is used for modifying
-                all bcell field arrays at once (replace_all_arrays, filter_all_arrays)
         """
         super().__init__()
         self.update_parameters_from_file(updated_params_file)
-
 
         self.birth_rate = self.bcell_birth_rate
         self.death_rate = None
@@ -46,46 +61,39 @@ class Bcells(Parameters):
 
         self.array_names = [
             'mutation_state_array',
-            'precalculated_dEs',
+            'gc_lineage',
             'lineage',
             'target_epitope',
             'variant_affinities',
             'activated_time',
-            'gc_or_egc_derived'
         ]
 
     
     def reset_bcell_fields(self) -> None:
         """Initialize bcell field arrays.
-        
+
         Attributes:
-            mutation_state_array: np.ndarray (shape=(n_cell, n_res)) indicating 0
-                for unmutated residue and 1 for mutated residue.
-            precalculated_dEs: np.ndarray (shape=(n_cell, n_res, n_var)) containing
-                the change in affinity (dE) for a particular variant given a mutation
-                in a residue.
+            mutation_state_array: scipy csr_matrix (shape=(n_cell, n_res)) indicating 0
+                for unmutated residue and 1 for mutated residue. Despite the warning
+                we get about lil_matrix being better than csr_matrix, I tested both
+                and csr_matrix is faster. Using csr_matrix to save space.
+            gc_lineage: np.ndarray (shape=(n_cell)) containing the gc lineage 
+                of the bcell.
             lineage: np.ndarray (shape=(n_cell)) containing the lineage of the bcell.
             target_epitope: np.ndarray (shape=(n_cell)) containing the targeted epitope.
             variant_affinites: np.ndarray (shape=(n_cell, n_var)) containing the
                 binding affinity of the bcell with a particular variant.
             activated_time: np.ndarray (shape=(n_cell)) containing the time the bcell
                 was produced.
-            gc_or_egc_derived: np.ndarray (shape=(n_cell)) containing whether the bcell
-                was derived from the GC or EGC. See utils.DerivedCells for tag values.
         """
-        self.mutation_state_array = np.zeros(
+        self.mutation_state_array = scipy.sparse.csr_matrix(np.zeros(
             (self.initial_number, self.n_res), dtype=int
-        )                                                                                 
-        self.precalculated_dEs = np.zeros(                                              
-            (self.initial_number, self.n_res, self.n_var)
-        )
+        ))
+        self.gc_lineage = np.zeros(self.initial_number, dtype=int)
         self.lineage = np.zeros(self.initial_number, dtype=int)                   
         self.target_epitope = np.zeros(self.initial_number, dtype=int)                              
         self.variant_affinities = np.zeros((self.initial_number, self.n_var))             
-        self.activated_time = np.zeros(self.initial_number)                             
-        self.gc_or_egc_derived = np.zeros(
-            self.initial_number, dtype=int
-        ) + utils.DerivedCells.UNSET.value                                        
+        self.activated_time = np.zeros(self.initial_number)                                          
 
 
     def replace_all_arrays(self, idx: np.ndarray) -> None:
@@ -105,8 +113,7 @@ class Bcells(Parameters):
             idx: indices indicating which bcells to remove.
         """
         other_idx = utils.get_other_idx(np.arange(self.lineage.size), idx)
-        for array_name in self.array_names:
-            setattr(self, array_name, getattr(self, array_name)[other_idx])
+        self.replace_all_arrays(other_idx)
 
 
     def add_bcells(self, bcells: Self) -> None:
@@ -116,23 +123,30 @@ class Bcells(Parameters):
             bcells: the other Bcell population.
         """
         for array_name in self.array_names:
-            new_array = np.concatenate([
-                getattr(self, array_name), 
-                getattr(bcells, array_name),
-            ], axis=0)
+
+            current_arr = getattr(self, array_name)
+            other_arr = getattr(bcells, array_name)
+
+            if isinstance(current_arr, scipy.sparse.csr_matrix):
+                assert len(current_arr.shape) == 2
+                new_array = scipy.sparse.vstack([current_arr, other_arr])
+            elif isinstance(current_arr, np.ndarray):
+                new_array = np.concatenate([current_arr, other_arr], axis=0)
+            else:
+                raise ValueError(f'{array_name} type {type(current_arr)} not found.')
+            
             setattr(self, array_name, new_array)
-
-
-    def tag_gc_or_egc_derived(self, tag_value: int) -> None:
-        """Tag all the bcells with tag_value.
+    
+    def set_activated_time(self, current_time: float, shift: bool=True) -> None:
+        """Set activated time of bcells.
         
         Args:
-            tag_value: Indicates if bcells are from GC or EGC. See utils.DerivedCells
-            for values.
+            current_time: Current simulation time.
+            shift: Whether to shift forward by 0.5 * dt.
         """
-        self.gc_or_egc_derived = np.zeros(
-            shape=self.lineage.shape, dtype=int
-        ) + tag_value
+        self.activated_time = np.zeros(
+            shape=self.activated_time.shape
+        ) + current_time + (0.5 * self.dt if shift else 0)
     
 
     def get_dE(
@@ -175,9 +189,10 @@ class Bcells(Parameters):
             activated: Whether bcell is activated. np.ndarray (shape=(n_cells)).
         """
         conc_term = conc_array / self.C0
-        aff_term = 10 ** (
-            self.variant_affinities[:, 0] - self.E0
-        ) #(n_cells,)
+        energies = np.minimum(
+            self.variant_affinities[:, 0], self.Esat
+        )
+        aff_term = 10 ** (energies - self.E0)
         activation_signal = (conc_term * aff_term) ** self.w2
 
         if self.w1 > 0:  # Alternative Ag capture model
@@ -327,19 +342,6 @@ class Bcells(Parameters):
         return new_bcells
     
     
-    def get_filtered_by_tag(self, tag_value: int) -> Self:
-        """Get a copy of Bcells filtered by their tag_value.
-        
-        Args:
-            tag_value: whether to look for GC or EGC-derived cells.
-
-        Returns:
-            Copies of the filtered Bcells.
-        """
-        filtered_idx = np.where(self.gc_or_egc_derived == tag_value)[0]
-        return self.get_bcells_from_idx(filtered_idx)
-    
-    
     def get_seeding_bcells(self, conc: np.ndarray) -> Self:
         """Get a copy of GC-seeding Bcells.
 
@@ -369,11 +371,18 @@ class Bcells(Parameters):
         return self.get_bcells_from_idx(birth_idx)
 
 
-    def get_mutated_bcells_from_idx(self, idx: np.ndarray) -> Self:
+    def get_mutated_bcells_from_idx(
+        self, 
+        idx: np.ndarray, 
+        precalculated_dEs: np.ndarray
+    ) -> Self:
         """Get copies of bcells based on idx and mutate them.
         
         Args:
             idx: indices of the bcells to mutate.
+            precalculated_dEs: Precalculated affinity changes for all cells
+                to all variants. From Simulation class.
+                np.ndarray (shape=(n_gc, n_cell, n_res, n_var)).
 
         Returns:
             Copies of the bcells after mutating.
@@ -382,29 +391,51 @@ class Bcells(Parameters):
         mutated_residues = np.random.randint(self.n_res, size=idx.size)
 
         # Find which bcells are mutated already
-        original_mutation_states = mutated_bcells.mutation_state_array[
-            np.arange(idx.size), mutated_residues
-        ]
+        # Weird indexing issues with csr_matrix depending on array shape.
+        # If idx.size == 0, indexing csr_matrix returns a csr_matrix.
+        # if idx.size > 0, indexing returns a matrix.
+        # Need to account for this.
+        if idx.size == 0:
+            original_mutation_states = np.squeeze(
+                mutated_bcells.mutation_state_array[
+                    np.arange(idx.size), mutated_residues
+                ].toarray()
+            )
+        else:
+            original_mutation_states = np.array(
+                mutated_bcells.mutation_state_array[
+                    np.arange(idx.size), mutated_residues
+                ]
+            ).squeeze()
+
         nonmutated_idx = np.where(original_mutation_states == 0)[0]
         mutated_idx = np.where(original_mutation_states == 1)[0]
         residues_nonmutated = mutated_residues[nonmutated_idx]
         residues_mutated = mutated_residues[mutated_idx]
+        lineage_nonmutated = mutated_bcells.lineage[nonmutated_idx]
+        lineage_mutated = mutated_bcells.lineage[mutated_idx]
+        gc_lineage_nonmutated = mutated_bcells.gc_lineage[nonmutated_idx]
+        gc_lineage_mutated = mutated_bcells.gc_lineage[mutated_idx]
 
         if nonmutated_idx.size + mutated_idx.size != idx.size:
             raise ValueError('Mutation state array may contain nonbinary values.')
         
         # Invert values in mutation_state_array
-        mutated_bcells.mutation_state_array[nonmutated_idx, residues_nonmutated] += 1
-        mutated_bcells.mutation_state_array[mutated_idx, residues_mutated] -= 1
+        mutated_bcells.mutation_state_array[nonmutated_idx, residues_nonmutated] = 1
+        mutated_bcells.mutation_state_array[mutated_idx, residues_mutated] = 0
 
         # Adjust affinities
-        mutated_bcells.variant_affinities[
-            nonmutated_idx
-        ] += mutated_bcells.precalculated_dEs[nonmutated_idx, residues_nonmutated]
+        mutated_bcells.variant_affinities[nonmutated_idx] += (
+            precalculated_dEs[
+                gc_lineage_nonmutated, 
+                lineage_nonmutated, 
+                residues_nonmutated
+            ]
+        )
 
-        mutated_bcells.variant_affinities[
-            mutated_idx
-        ] -= mutated_bcells.precalculated_dEs[mutated_idx, residues_mutated]
+        mutated_bcells.variant_affinities[mutated_idx] -= (
+            precalculated_dEs[gc_lineage_mutated, lineage_mutated, residues_mutated]
+        )
 
         if np.any(mutated_bcells.variant_affinities > self.max_affinity):
             raise ValueError('Affinity impossibly high.')
@@ -416,21 +447,23 @@ class Bcells(Parameters):
         self, 
         output_prob: float, 
         output_pc_fraction: float,
-        tag_value: int, 
+        precalculated_dEs: np.ndarray,
         mutate: bool=True
-    ) -> tuple[Self]:
+    ) -> tuple[Self, Self, Self]:
         """Divide bcells into memory, plasma, nonexported_bcells.
         
         Args:
-            tag_value: Indicates if bcells are from GC or EGC. See utils.DerivedCells
             output_prob: Probability of a birthed bcell being exported.
             output_pc_fraction: Fraction of exported bcells that become plasma cells.
+            precalculated_dEs: Precalculated affinity changes for all cells
+                to all variants. From Simulation class.
+                np.ndarray (shape=(n_gc, n_cell, n_res, n_var)).
             mutate: Whether to include mutated cells. Not used in the EGC.
 
         Returns:
             memory_bcells: Memory bcells that will be exported.
             plasma_bcells: Plasma bcells that will be exported.
-            nonexported_bcells. Nonexported bcells. Includes mutated bcells if
+            nonexported_bcells: Nonexported bcells. Includes mutated bcells if
                 mutate is True.
         
         """
@@ -458,13 +491,13 @@ class Bcells(Parameters):
         nonexported_bcells = self.get_bcells_from_idx(silent_mutation_idx)
         
         if mutate:
-            mutated_bcells = self.get_mutated_bcells_from_idx(affinity_change_idx)
-            nonexported_bcells.add_bcells(mutated_bcells)
-
-        # Tag bcells as GC or EGC-derived
-        memory_bcells.tag_gc_or_egc_derived(tag_value)
-        plasma_bcells.tag_gc_or_egc_derived(tag_value)
-        nonexported_bcells.tag_gc_or_egc_derived(tag_value)
+            mutated_bcells = self.get_mutated_bcells_from_idx(
+                affinity_change_idx, 
+                precalculated_dEs
+            )
+        else:
+            mutated_bcells = self.get_bcells_from_idx(affinity_change_idx)
+        nonexported_bcells.add_bcells(mutated_bcells)
 
         return memory_bcells, plasma_bcells, nonexported_bcells
     

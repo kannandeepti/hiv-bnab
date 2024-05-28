@@ -11,7 +11,9 @@ class Parameters:
     """
     Base dataclass that contains simulation parameters.
 
-    Inherited classes will have access to all these parameters.
+    Inherited classes will have access to all these parameters. Some arrays are
+    stored as tuples because the np.ndarray type cannot be serialized into a json
+    file.
     """
 
     updated_params_file: str | None = None
@@ -24,6 +26,11 @@ class Parameters:
     Directory for containing the experiment data.
     """
 
+    history_file_name: str = 'history.pkl'
+    """
+    File name for writing the history pickle file.
+    """
+
     param_file_name: str = 'parameters.json'
     """
     File name for writing the parameters of an experiment.
@@ -34,22 +41,22 @@ class Parameters:
     File name for writing the simulation data.
     """
 
-    history_file_name: str = "history.pkl"
-    """
-    File name for writing the history.
-    """
-
     overwrite: bool = True
     """
     Whether to overwrite existing files.
     """
-
+  
+    reset_gc_egcs: bool = True
+    """
+    Whether to reset GCs and EGCs upon a new vaccination.
+    If True, this matches Leerang's simulations.
+    """
     seed: int = 0
     """
     The random seed for reproducibility.
     """
     
-    dt: float = 0.05 # XXX
+    dt: float = 0.05
     """
     The time step for simulations, in days.
     """
@@ -127,27 +134,27 @@ class Parameters:
     
     gc_entry_birth_rate: float = 1
     """
-    The birth rate of GC entry.
+    The birth rate of GC entry (day-1).
     """
     
     bcell_birth_rate: float = 2.5
     """
-    The birth rate of B cells.
+    The birth rate of B cells (day-1).
     """
     
     bcell_death_rate: float = 0.5
     """
-    The death rate of B cells.
+    The death rate of B cells (day-1).
     """
     
     plasma_half_life: float = 4
     """
-    The half-life of plasma cells.
+    The half-life of plasma cells (days).
     """
     
     memory_half_life: float = float('inf')
     """
-    The half-life of memory cells.
+    The half-life of memory cells (days).
     """
     
     memory_to_gc_fraction: float = 0.
@@ -170,7 +177,12 @@ class Parameters:
     """
     The PDF parameters for mutation dE.
     """
-    
+
+    Esat: float = 10.
+    """
+    Energy saturation level. If energy is above this value, it is clipped.
+    """
+
     E0: float = 6
     """
     Initial energy level.
@@ -193,11 +205,6 @@ class Parameters:
     """
     6 to 8 with interval of 0.2.
     """
-
-    class_size = fitness_array[1] - fitness_array[0]
-    """
-    The size of a bin in fitness_array
-    """
     
     n_naive_precursors: int = 2000
     """
@@ -209,14 +216,14 @@ class Parameters:
     The maximum affinity.
     """
 
-    affinities_history: tuple[float] = (0., 6., 7., 8., 9.)
+    affinities_history: tuple[float] = (6., 7., 8., 9.)
     """
     Affinity thresholds for counting cells for the simulation history.
     """
     
     C0: float = 0.008
     """
-    Value to normalize concentrations.
+    Value to normalize concentrations (nM).
     """
 
     naive_target_fractions: tuple = (0.8, 0.15, 0.05)
@@ -238,7 +245,7 @@ class Parameters:
     
     ag_eff: float = 0.01
     """
-    XXX
+    Weighting between soluble Ag and FDC-bound Ag for calculating effective free Ag.
     """
     
     masking: int = 0
@@ -247,24 +254,24 @@ class Parameters:
     Whether to use epitope masking.
     """
 
-    ig_types: tuple[str] = ('IgM', 'IgG-GCPC', 'IgG-EGCPC')
+    bcell_types: tuple[str] = ('plasma_bcells_GC', 'plasma_bcells_EGC')
     """
-    Types of Ig.
+    Types of Bcell producing Abs.
     """
-    
-    n_ig_types: int = len(ig_types)
+
+    ig_types: tuple[str] = ('IgG')
     """
-    Number of types of Ig.
+    Types of Igs.
     """
-    
+
     initial_ka: float = 1e-3
     """
-    Initial ka value.
+    Initial ka value (nM-1).
     """
     # No IgM in this calculation
     igm0: float = 0.01
     """
-    Initial IgM concentration (nm-1).
+    Initial IgM concentration (nM).
     """
 
     bnab_conc: float = 0.01
@@ -274,7 +281,7 @@ class Parameters:
     
     deposit_rate: float = 24.
     """
-    The deposit rate (units XXX).
+    The deposit rate (day-1).
     """
 
     d_bnab: float = 0.
@@ -284,22 +291,22 @@ class Parameters:
     
     d_igm: float = np.log(2) / 28
     """
-    Decay rate of IgM. XXX
+    Decay rate of IgM (day-1).
     """
     
     d_igg: float = np.log(2) / 28
     """
-    Decay rate of IgG. XXX
+    Decay rate of IgG (day-1).
     """
     
     d_ag: float = 3.
     """
-    Decay rate of antigen. XXX
+    Decay rate of antigen (day-1).
     """
     
     d_IC: float = 0.15
     """
-    Decay rate of immune complexes. XXX
+    Decay rate of immune complexes (day-1).
     """
     
     conc_threshold: float = 1e-10
@@ -309,7 +316,7 @@ class Parameters:
     
     delay: float = 2.
     """
-    Time delay for producing Abs.
+    Time delay before GC-derived plasma cells produce Abs (days).
     """
     
     nm_to_m_conversion: int = -9
@@ -322,9 +329,9 @@ class Parameters:
     Maximum ka value allowed (nM-1).
     """
     
-    production: int = 1
+    production: float = 1
     """
-    Production XXX.
+    Ab production rate (day-1).
     """
     
     nmax: float = 10.
@@ -332,44 +339,29 @@ class Parameters:
     Tcell amount for seeding GCs.
     """
     
-    tmax: int = 360
+    tmax: int = 200
     """
-    Maximum time allowed (days).
+    Maximum time allowed for n_tcells_arr (days).
     """
     
-    n_tmax: int = 1200
+    n_tmax: float = 1200
     """
-    . XXX
+    Maximum number of Tcells.
     """
 
-    tspan_dt: float = 0.25
+    tspan_dt: float = 1. # XXX
     """
     Timestep to save results in history (days).
-    """
-
-    history_times: tuple = tuple(np.arange(0,  tmax + tspan_dt, tspan_dt))
-    """
-    Timepoints to save results in history (days).
-    """
-
-    n_history_timepoints: int = len(history_times)
-    """
-    Number of history timepoints.
     """
     
     d_Tfh: float = 0.01
     """
-    Rate of change of Tfh. XXX
+    Time constant in the exponential decay of tcells (day-1).
     """
-    
-    r_igm: float = igm0 * production / n_gc
+
+    mutate_start_time: float = 6.
     """
-    Rate of IgM production.
-    """
-    
-    r_igg: float = igm0 * production / n_gc
-    """
-    Rate of IgG production.
+    Time to turn on mutations (days).
     """
 
     ########################################
@@ -401,33 +393,64 @@ class Parameters:
     Initial antigen concentration (nM-1).
     """
 
-    F0: int =  0
-    """XXX"""
-
     dose_time: float = 0.
     """
-    Time to give the vaccine dose.
-    """
-
-    dose: float = ag0
-    """
-    Concentration of Ag in the dose.
+    Time to give the vaccine dose (days).
     """
 
     egc_stop_time: float = 6.
     """
-    The time to stop EGCs.
-    """
-
-    n_timesteps = int(vax_timing[vax_idx] / dt)
-    """
-    Number of timesteps for this simulation.
+    The time to stop EGCs (days).
     """
     
     ################################################################
     # Properties are not included when calling dataclasses.fields.
+    # They are not included in the parameters.json file.
     ################################################################
+    @property
+    def n_timesteps(self) -> int:
+        """Number of timesteps for this simulation."""
+        return int(self.vax_timing[self.vax_idx] / self.dt)
+
+    @property
+    def history_times(self) -> tuple:
+        """Timepoints to save results in history (days)."""
+        return tuple(np.arange(0, self.vax_timing[self.vax_idx], self.tspan_dt))
+
+    @property
+    def n_history_timepoints(self) -> int:
+        """Number of history timepoints."""
+        return len(self.history_times)
+
+    @property
+    def overlap_matrix(self) -> tuple:
+        """Defines the epitope overlap matrix."""
+        return tuple(map(tuple, np.eye(self.n_ep)))
     
+    @property
+    def r_igm(self) -> float:
+        """Rate of IgM production (nM/day)."""
+        return self.igm0 * self.production / self.n_gc
+
+    @property
+    def r_igg(self) -> float:
+        """Rate of IgG production (nM/day)."""
+        return self.igm0 * self.production / self.n_gc
+
+    @property
+    def n_bcell_types(self) -> int:
+        """Number of types of Bcells producing Abs."""
+        return len(self.bcell_types)
+
+    @property
+    def n_ig_types(self) -> int:
+        """Number of types of Igs."""
+        return len(self.ig_types)
+
+    @property
+    def class_size(self) -> float:
+        """The size of a bin in fitness_array."""
+        return self.fitness_array[1] - self.fitness_array[0]
     @property
     def ag_ep_matrix(self) -> np.ndarray:
         """ Returns a n_ep by n_ag matrix with 1's and 0's specifying
@@ -442,13 +465,6 @@ class Parameters:
         ])
         assert(ag_ep_matrix.shape == (self.n_ep, self.n_ag))
         return ag_ep_matrix
-
-    @property
-    def overlap_matrix(self) -> np.ndarray:
-        """Defines the epitope overlap matrix. XXX move to attributes"""
-        overlap_matrix = np.eye(self.n_ep)
-        # XXX adjust if there is some overlap
-        return overlap_matrix
 
 
     @property
@@ -542,7 +558,14 @@ class Parameters:
     ################################################################
     # Methods.
     ################################################################
-    
+
+    total_time = classmethod(utils.total_time)
+    """Make total_time a class method to return _total_time."""
+
+
+    reset_total_time = classmethod(utils.reset_total_time)
+    """Make reset_total_time a class method."""
+
 
     def update_parameters_from_file(self, file_path: str | None=None) -> None:
         """Update parameter from default by reading file, if file is not None.
@@ -555,6 +578,14 @@ class Parameters:
             updated_params = utils.read_json(file_path)
             for key, value in updated_params.items():
                 setattr(self, key, value)
+
+
+    def convert_tuple_to_list(self, nested_tuple: tuple) -> list:
+        """Turns nested tuple into a nested list."""
+        if isinstance(nested_tuple, tuple):
+            return [self.convert_tuple_to_list(item) for item in nested_tuple]
+        else:
+            return nested_tuple
 
 
     def find_previous_experiment(self) -> str:
@@ -579,14 +610,26 @@ class Parameters:
 
             previous_exp = True
 
-            data_dir = os.path.join(self.experiment_dir, experiment)
-            exp_params = utils.read_json(data_dir, self.param_file_name)
+            file_path = os.path.join(
+                self.experiment_dir, experiment, self.param_file_name
+            )
+            exp_params = utils.read_json(file_path)
             
             for param, value in param_dict.items():
 
+                if param == 'updated_params_file':  # Don't consider updated_params_file
+                    continue
+
+                if param not in exp_params:
+                    previous_exp = False
+                    continue
+
                 if param != 'vax_idx':
+                    if isinstance(value, tuple):  # Tuples are read as lists
+                        value = self.convert_tuple_to_list(value)
                     if value != exp_params[param]:
                         previous_exp = False
+
                 else:
                     if value != exp_params[param] + 1:
                         previous_exp = False
