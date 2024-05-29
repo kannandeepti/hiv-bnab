@@ -440,11 +440,17 @@ class Parameters:
     @property
     def n_bcell_types(self) -> int:
         """Number of types of Bcells producing Abs."""
+        if type(self.bcell_types) == str:
+            #only 1 b cell type
+            return 1
         return len(self.bcell_types)
 
     @property
     def n_ig_types(self) -> int:
         """Number of types of Igs."""
+        if type(self.ig_types) == str:
+            #only 1 ig type
+            return 1
         return len(self.ig_types)
 
     @property

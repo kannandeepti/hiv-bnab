@@ -62,7 +62,6 @@ class Simulation(Parameters):
         ]
         self.parallel_run_idx = parallel_run_idx
         self.create_file_paths()
-        #self.concentrations = Concentrations(self.updated_params_file)
         self.reset_history()
 
 

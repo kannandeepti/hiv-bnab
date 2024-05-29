@@ -150,7 +150,6 @@ def get_death_rate_from_half_life(half_life: float, dt: float) -> float:
     Returns:
         Array of elements in arr1 and not in arr2.
     """
-    return arr1[~np.isin(arr1, arr2)]
     return 1 / dt * (1 - (2 ** (-dt / half_life)))
 
 
