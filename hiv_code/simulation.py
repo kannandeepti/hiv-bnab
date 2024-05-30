@@ -4,6 +4,7 @@ import datetime
 import os
 import time
 from typing import Self, Any
+from pathlib import Path
 
 import numpy as np
 
@@ -166,13 +167,11 @@ class Simulation(Parameters):
         history_path: path to the history pickle file
         """
         date_time = datetime.datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
-        self.data_dir = os.path.join(
-            self.experiment_dir, f'{date_time}_{self.parallel_run_idx}'
-        )
+        self.data_dir = Path(self.experiment_dir)/f'{date_time}_{self.parallel_run_idx}'
 
-        self.history_path = os.path.join(self.data_dir, self.history_file_name)
-        self.sim_path = os.path.join(self.data_dir, self.simulation_file_name)
-        self.parameter_json_path = os.path.join(self.data_dir, self.param_file_name)
+        self.history_path = self.data_dir / self.history_file_name
+        self.sim_path = self.data_dir / self.simulation_file_name
+        self.parameter_json_path = self.data_dir / self.param_file_name
 
         if self.vax_idx > 0:
             self.prev_sim_path = os.path.join(
@@ -347,8 +346,16 @@ class Simulation(Parameters):
 
         tcell is constant at the maximum value in the EGC, and multiplied by n_gc like Leerang does.
         """
+        seeding_bcells = self.memory_gc_bcells.get_seeding_bcells(self.ag_eff_conc)
+
+        # Set activated time
+        seeding_bcells.set_activated_time(self.current_time)
+
+        # Seed
+        self.memory_egc_bcells.add_bcells(seeding_bcells)
+
         daughter_bcells = self.memory_egc_bcells.get_daughter_bcells(
-            self.ag_eff_conc, self.n_tmax * self.n_gc
+            self.ag_eff_conc, self.tcell #Leerang had self.nmax * self.n_gc
         )
         differentiated_bcells = daughter_bcells.differentiate_bcells(
             self.egc_output_prob, 
@@ -364,6 +371,9 @@ class Simulation(Parameters):
 
         self.plasma_egc_bcells.add_bcells(plasma_bcells)
         self.memory_egc_bcells.add_bcells(memory_bcells)
+
+        if np.isclose(self.current_time, round(self.current_time)):
+            self.print_bcell_populations()
 
 
     def read_checkpoint(self) -> None:
@@ -434,11 +444,11 @@ class Simulation(Parameters):
             file_path: the path to the file.
         """
         write_fn, file_type = {
-            'pkl': (utils.write_pickle, 'pickle'),
-            'json': (utils.write_json, 'parameters')
-        }[file_path.split('.')[-1]]
+            '.pkl': (utils.write_pickle, 'pickle'),
+            '.json': (utils.write_json, 'parameters')
+        }[file_path.suffix]
 
-        if os.path.exists(file_path):
+        if file_path.exists():
             if self.overwrite:
                 print(f'Warning: {file_type} file already exists. Overwriting.')
                 write_fn(data, file_path)
@@ -537,7 +547,10 @@ class Simulation(Parameters):
             self.run_gc(gc_idx)
         self.memory_gc_bcells.add_bcells(self.temporary_memory_bcells)
 
-        if self.current_time < self.egc_stop_time:
+        if np.isclose(self.current_time, round(self.current_time)):
+            self.print_bcell_populations()
+            
+        if self.current_time < self.egc_stop_time or self.persistent_infection:
             self.run_egc()
 
         # Kill bcells
@@ -557,6 +570,14 @@ class Simulation(Parameters):
         )
 
         self.update_history()
+    
+    def print_bcell_populations(self) -> None:
+        """ Print out the status of B cell populations over the course of the simulation."""
+
+        print("Number of plasma GC bcells: " + f"{self.plasma_gc_bcells.lineage.size}")
+        print("Number of memory GC bcells: " + f"{self.memory_gc_bcells.lineage.size}")
+        print("Number of plasma EGC bcells: " + f"{self.plasma_egc_bcells.lineage.size}")
+        print("Number of memory EGC bcells: " + f"{self.memory_egc_bcells.lineage.size}")
 
 
     def run(self) -> None:
@@ -570,11 +591,9 @@ class Simulation(Parameters):
 
         if self.vax_idx > 0:
             self.read_checkpoint()
-            import pdb; pdb.set_trace()  # XXX todo, fix reading checkpoint issue
         else:
             self.create_populations()
 
-        import pdb; pdb.set_trace()
         # Keeping this here so we can verify that dEs are the same across doses.
         print(f'{self.precalculated_dEs[0, 0, 0, 0] = }')
 
@@ -590,12 +609,11 @@ class Simulation(Parameters):
                     f'Sim time: {self.current_time:.2f}, '
                     f'Wall time: {elapsed_time:.1f}'
                 )
-                print(print_string)
-            
+                print(print_string) 
             self.run_timestep()
 
         # memory_gc_bcells will contain all memory cells to read later.
-        self.memory_gc_bcells.add_bcells(self.memory_egc_bcells)
+        # self.memory_gc_bcells.add_bcells(self.memory_egc_bcells)
 
         # Write files
         os.makedirs(self.data_dir)

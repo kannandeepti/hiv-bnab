@@ -138,17 +138,14 @@ def get_other_idx(arr1: np.ndarray, arr2: np.ndarray) -> np.ndarray:
 
 
 def get_death_rate_from_half_life(half_life: float, dt: float) -> float:
-    """Get values in arr1 that are not in arr2.
-
-    Use numpy's isin to get a boolean mask of elements in arr1 that are not in arr2.
-    Use the mask to filter elements
+    """Given a bcell half-life, calculate the corresponding death rate.
     
     Args:
-        arr1: Array to search over.
-        arr2: Array with elements that should not be in arr1.
+        half_life: Half-life of the bcell population.
+        dt: Timestep.
 
     Returns:
-        Array of elements in arr1 and not in arr2.
+        Decay rate of the bcell population.
     """
     return 1 / dt * (1 - (2 ** (-dt / half_life)))
 

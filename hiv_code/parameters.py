@@ -152,7 +152,7 @@ class Parameters:
     The half-life of plasma cells (days).
     """
     
-    memory_half_life: float = float('inf')
+    memory_half_life: float = 22
     """
     The half-life of memory cells (days).
     """
@@ -368,6 +368,15 @@ class Parameters:
     # Specific to bolus doses.
     ########################################
 
+    persistent_infection: bool = True
+    """
+    Whether we are simulating a persistent infection (like HIV).
+    """
+    simulation_time: float = 28
+    """
+    For natural infection, how many days to run simulation for.
+    """
+
     vax_timing: tuple[int] = (28, 28, 28)
     """
     The timing of vaccinations, in days.
@@ -410,12 +419,18 @@ class Parameters:
     @property
     def n_timesteps(self) -> int:
         """Number of timesteps for this simulation."""
-        return int(self.vax_timing[self.vax_idx] / self.dt)
+        if self.persistent_infection:
+            return int(self.simulation_time / self.dt)
+        else:
+            return int(self.vax_timing[self.vax_idx] / self.dt)
 
     @property
     def history_times(self) -> tuple:
         """Timepoints to save results in history (days)."""
-        return tuple(np.arange(0, self.vax_timing[self.vax_idx], self.tspan_dt))
+        if self.persistent_infection:
+            return tuple(np.arange(0, self.simulation_time, self.tspan_dt))
+        else:
+            return tuple(np.arange(0, self.vax_timing[self.vax_idx], self.tspan_dt))
 
     @property
     def n_history_timepoints(self) -> int:
@@ -496,18 +511,22 @@ class Parameters:
         
         Returns:
             n_tcells_arr: Number of tcells over time.
-                np.ndarray (shape=tmax/dt)
+                np.ndarray (shape=n_timesteps,)
         """
-        tspan = np.arange(0, self.tmax + self.dt, self.dt)
-        n_tcells_arr = np.zeros(shape=tspan.shape)
-
-        if self.tmax <= 14:
-            n_tcells_arr = self.n_tmax * tspan / 14
+        if self.persistent_infection:
+            n_tcells_arr = np.tile(self.tmax, self.n_timesteps)
+        
         else:
-            d14_idx = round(14 / self.dt + 1)
-            n_tcells_arr[:d14_idx] = self.n_tmax * tspan[:d14_idx] / 14
-            for i in range(d14_idx, len(tspan)):
-                n_tcells_arr[i] = n_tcells_arr[i - 1] * np.exp(-self.d_Tfh * self.dt)
+            tspan = np.arange(0, self.tmax + self.dt, self.dt)
+            n_tcells_arr = np.zeros(shape=tspan.shape)
+
+            if self.tmax <= 14:
+                n_tcells_arr = self.n_tmax * tspan / 14
+            else:
+                d14_idx = round(14 / self.dt + 1)
+                n_tcells_arr[:d14_idx] = self.n_tmax * tspan[:d14_idx] / 14
+                for i in range(d14_idx, len(tspan)):
+                    n_tcells_arr[i] = n_tcells_arr[i - 1] * np.exp(-self.d_Tfh * self.dt)
 
         return n_tcells_arr
     

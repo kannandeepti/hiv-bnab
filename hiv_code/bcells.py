@@ -247,7 +247,7 @@ class Bcells(Parameters):
             matching_epitope = self.target_epitope == ep
             conc_array += (
                 conc[ep] * 
-                matching_epitope * (self.activated_time == 0)
+                matching_epitope 
             )
 
         activation_signal, activated = self.get_activation(conc_array)
