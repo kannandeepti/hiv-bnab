@@ -28,7 +28,7 @@ class Bcells(Parameters):
         lineage: np.ndarray (shape=(n_cell)) containing the lineage of the bcell.
         target_epitope: np.ndarray (shape=(n_cell)) containing the targeted epitope.
         variant_affinites: np.ndarray (shape=(n_cell, n_var)) containing the
-            binding affinity of the bcell with a particular variant.
+            log10 binding affinity of the bcell with a particular variant.
         activated_time: np.ndarray (shape=(n_cell)) containing the time the bcell
             was produced.
     """
@@ -254,7 +254,7 @@ class Bcells(Parameters):
     
         if activated.sum(): # at least one B cell is intrinsically activated
             lambda_ = self.get_birth_signal(
-                activation_signal, activated, self.nmax, self.gc_entry_birth_rate
+                activation_signal, activated, self.seeding_tcells, self.gc_entry_birth_rate
             )
             selected = np.random.uniform(size=activated.shape) < lambda_ * self.dt
             incoming_naive = activated & selected

@@ -90,18 +90,28 @@ class Parameters:
     """
     The number of antigens in circulation.
     """
+
+    n_conserved_epitopes: int = 1
+    """
+    The number of epitopes that are conserved across all n_ag antigens.
+    """
+
+    n_variable_epitopes: int = 1
+    """
+    The number of epitopes on each antigen that are variable.
+    """
     
+    n_ep: int = n_conserved_epitopes + n_ag * n_variable_epitopes
+    """
+    The number of distinct epitopes in circulation across all antigens.
+    """
+
     f_ag: tuple[float] = (0.5, 0.5)
     """ fraction of antigen i of total antigen. """
 
     fdc_capacity: float = 1.0
     """ TODO: how to choose this value? how does it compare to C0?"""
     
-    n_ep: int = 3
-    """
-    The number of total unique epitopes across a population of antigens in circulation.
-    """
-
     mutation_death_prob: float = 0.3
     """
     The probability of death due to mutation.
@@ -248,7 +258,7 @@ class Parameters:
     Weighting between soluble Ag and FDC-bound Ag for calculating effective free Ag.
     """
     
-    masking: int = 0
+    masking: int = 1
     assert masking in [0, 1]
     """
     Whether to use epitope masking.
@@ -334,9 +344,9 @@ class Parameters:
     Ab production rate (day-1).
     """
     
-    nmax: float = 10.
+    seeding_tcells: float = 10
     """
-    Tcell amount for seeding GCs.
+    Tcell amount for seeding GCs / EGCs.
     """
     
     tmax: int = 200
@@ -344,9 +354,9 @@ class Parameters:
     Maximum time allowed for n_tcells_arr (days).
     """
     
-    n_tmax: float = 1200
+    n_tfh: float = 200
     """
-    Maximum number of Tcells.
+    number of Tfh in each GC (constant)
     """
 
     tspan_dt: float = 1. # XXX
@@ -372,7 +382,7 @@ class Parameters:
     """
     Whether we are simulating a persistent infection (like HIV).
     """
-    simulation_time: float = 28
+    simulation_time: float = 400
     """
     For natural infection, how many days to run simulation for.
     """
@@ -472,6 +482,7 @@ class Parameters:
     def class_size(self) -> float:
         """The size of a bin in fitness_array."""
         return self.fitness_array[1] - self.fitness_array[0]
+
     @property
     def ag_ep_matrix(self) -> np.ndarray:
         """ Returns a n_ep by n_ag matrix with 1's and 0's specifying
@@ -479,12 +490,15 @@ class Parameters:
         # TODO: read from file -> could also discretize from a matrix that specifiesx
         # rho values (conservation) of epitopes across strains n_ep_per_ag x n_ag.
         # i.e. rho[0, 1] = how similar ep0 on ag2 is to ep0 on ag 1.
-        ag_ep_matrix = np.array([
-            [1, 1], #both antigens share ep 1
-            [1, 0], #antigen 1 has ep 2
-            [0, 1]  #antigen 2 has ep 3
-        ])
-        assert(ag_ep_matrix.shape == (self.n_ep, self.n_ag))
+        ag_ep_matrix = np.zeros((self.n_ep, self.n_ag))
+        #first n_conserved_epitopes rows are 1 for all antigens
+        ag_ep_matrix[0:self.n_conserved_epitopes, :] = 1
+        #the next rows have a single 1 for each antigen
+        ag = 0
+        for ep in range(self.n_conserved_epitopes, self.n_ep):
+            ag_ep_matrix[ep, ag] = 1
+            ag += 1
+
         return ag_ep_matrix
 
 
@@ -514,7 +528,7 @@ class Parameters:
                 np.ndarray (shape=n_timesteps,)
         """
         if self.persistent_infection:
-            n_tcells_arr = np.tile(self.tmax, self.n_timesteps)
+            n_tcells_arr = np.tile(self.n_tfh, self.n_timesteps)
         
         else:
             tspan = np.arange(0, self.tmax + self.dt, self.dt)
@@ -602,6 +616,8 @@ class Parameters:
         if self.updated_params_file:
             updated_params = utils.read_json(file_path)
             for key, value in updated_params.items():
+                if not hasattr(self, key):
+                    raise AttributeError(f"The parameter '{key}' is not a valid attribute of the Parameters class.")
                 setattr(self, key, value)
 
 

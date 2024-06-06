@@ -372,9 +372,41 @@ class Simulation(Parameters):
         self.plasma_egc_bcells.add_bcells(plasma_bcells)
         self.memory_egc_bcells.add_bcells(memory_bcells)
 
-        if np.isclose(self.current_time, round(self.current_time)):
-            self.print_bcell_populations()
+    def split_memory_bcells(self) -> None:
+        """Split memory GC cells into cells that can re-enter GCs
+        and cells that can seed EGCs. """
 
+        # Split memory into GCs and EGC
+        memory_to_gc_idx = utils.get_sample(
+            np.arange(self.memory_gc_bcells.lineage.size), 
+            p=self.memory_to_gc_fraction,
+        )
+
+        #memory_to_egc_idx = utils.get_other_idx(
+        #    np.arange(self.memory_gc_bcells.lineage.size), 
+        #    memory_to_gc_idx
+        #)
+
+        # Add selected memory cells to naive pool for each GC
+        memory_size_to_split = memory_to_gc_idx.size // self.n_gc
+        memory_to_gc_idxs = np.split(memory_to_gc_idx[:memory_size_to_split], self.n_gc)
+        for gc_idx in range(self.n_gc):
+            memory_to_gc_bcells = self.memory_gc_bcells.get_bcells_from_idx(
+                memory_to_gc_idxs[gc_idx]
+            )
+            #Add some memory cells to the naive pool to compete for seeding GCs
+            self.naive_bcells[gc_idx].add_bcells(memory_to_gc_bcells)
+            #self.gc_bcells[gc_idx].add_bcells(memory_to_gc_bcells)
+
+        # Remove the memory GC cells from the memory compartment (since now they are in naive)
+        self.memory_gc_bcells.filter_all_arrays(memory_to_gc_idx)
+        if self.memory_gc_bcells.lineage.size == 0:
+            self.memory_gc_bcells.reset_bcell_fields()
+        #memory_to_egc_bcells = self.memory_gc_bcells.get_bcells_from_idx(
+        #    memory_to_egc_idx
+        #)
+        #then EGC seeding is still taken from the memory GC pool
+        #self.memory_egc_bcells.add_bcells(memory_to_egc_bcells)
 
     def read_checkpoint(self) -> None:
         """Read previous simulation checkpoint, seed GCs and EGC.
@@ -410,30 +442,7 @@ class Simulation(Parameters):
         self.memory_egc_bcells.set_activated_time(0, shift=False)
 
         # Split memory into GCs and EGC
-        memory_to_gc_idx = utils.get_sample(
-            np.arange(self.memory_gc_bcells.lineage.size), 
-            p=self.memory_to_gc_fraction,
-        )
-
-        memory_to_egc_idx = utils.get_other_idx(
-            np.arange(self.memory_gc_bcells.lineage.size), 
-            memory_to_gc_idx
-        )
-
-        # Seed GCs
-        memory_size_to_split = memory_to_gc_idx.size // self.n_gc
-        memory_to_gc_idxs = np.split(memory_to_gc_idx[:memory_size_to_split], self.n_gc)
-        for gc_idx in range(self.n_gc):
-            memory_to_gc_bcells = self.memory_gc_bcells.get_bcells_from_idx(
-                memory_to_gc_idxs[gc_idx]
-            )
-            self.gc_bcells[gc_idx].add_bcells(memory_to_gc_bcells)
-
-        # Seed EGC
-        memory_to_egc_bcells = self.memory_gc_bcells.get_bcells_from_idx(
-            memory_to_egc_idx
-        )
-        self.memory_egc_bcells.add_bcells(memory_to_egc_bcells)
+        self.split_memory_bcells()
 
 
     def check_overwrite(self, data: Any, file_path: str) -> None:
@@ -546,10 +555,7 @@ class Simulation(Parameters):
         for gc_idx in range(self.n_gc):
             self.run_gc(gc_idx)
         self.memory_gc_bcells.add_bcells(self.temporary_memory_bcells)
-
-        if np.isclose(self.current_time, round(self.current_time)):
-            self.print_bcell_populations()
-            
+        self.split_memory_bcells()
         if self.current_time < self.egc_stop_time or self.persistent_infection:
             self.run_egc()
 

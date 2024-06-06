@@ -4,6 +4,7 @@ import json
 import pickle
 import time
 from typing import Callable, Any, Type
+from pathlib import PosixPath
 
 import numpy as np
 import scipy
@@ -93,6 +94,9 @@ def read_pickle(file: str) -> Any:
 
 
 def write_json(data: dict, file: str) -> None:
+    for key, value in data.items():
+        if isinstance(value, PosixPath):
+            data[key] = str(value)
     with open(file, 'w') as f:
         json.dump(data, f)
     
