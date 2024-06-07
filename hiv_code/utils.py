@@ -1,6 +1,7 @@
 import copy
 import functools
 import json
+import yaml
 import pickle
 import time
 from typing import Callable, Any, Type
@@ -81,7 +82,24 @@ def expand(dictionary: dict) -> dict:
             newdict[key] = expand(value)
     return newdict
 
-
+def convert_numpy_objects(obj):
+    """ Convert numpy objects to Python-native types so that they 
+    are JSON serializable
+    """
+    if isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, PosixPath):
+        return str(obj)
+    elif isinstance(obj, dict):
+        return {k: convert_numpy_objects(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_objects(i) for i in obj]
+    else:
+        return obj
 
 def write_pickle(data: Any, file: str) -> None:
     with open(file, 'wb') as f:
@@ -94,16 +112,18 @@ def read_pickle(file: str) -> Any:
 
 
 def write_json(data: dict, file: str) -> None:
-    for key, value in data.items():
-        if isinstance(value, PosixPath):
-            data[key] = str(value)
+    data_converted = convert_numpy_objects(data)
     with open(file, 'w') as f:
-        json.dump(data, f)
+        json.dump(data_converted, f)
     
 
 def read_json(file: str) -> dict:
     with open(file, 'r') as f:
         return json.load(f)
+
+def read_yaml(file) -> dict:
+    with open(file, 'r') as f:
+        return yaml.safe_load(f)
 
 
 def get_sample(arr1: np.ndarray, p: float) -> np.ndarray:

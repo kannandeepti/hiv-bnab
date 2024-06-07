@@ -1,13 +1,13 @@
 import dataclasses
 import os
-
+from pydantic import BaseModel
 import numpy as np
 
 from . import utils
 
 
 @dataclasses.dataclass
-class Parameters:
+class Parameters():
     """
     Base dataclass that contains simulation parameters.
 
