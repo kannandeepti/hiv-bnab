@@ -389,7 +389,7 @@ class Simulation(Parameters):
 
         # Add selected memory cells to naive pool for each GC
         memory_size_to_split = memory_to_gc_idx.size // self.n_gc
-        memory_to_gc_idxs = np.split(memory_to_gc_idx[:memory_size_to_split], self.n_gc)
+        memory_to_gc_idxs = np.array_split(memory_to_gc_idx[:memory_size_to_split], self.n_gc)
         for gc_idx in range(self.n_gc):
             memory_to_gc_bcells = self.memory_gc_bcells.get_bcells_from_idx(
                 memory_to_gc_idxs[gc_idx]

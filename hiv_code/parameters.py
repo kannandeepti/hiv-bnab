@@ -106,6 +106,12 @@ class Parameters():
     The number of distinct epitopes in circulation across all antigens.
     """
 
+    epitope_overlap: float = 0.
+    """
+    Overlap between conserved epitope and variable epitope on each antigen.
+    TODO: generalize to input the full matrix here
+    """
+
     f_ag: tuple[float] = (0.5, 0.5)
     """ fraction of antigen i of total antigen. """
 
@@ -450,7 +456,10 @@ class Parameters():
     @property
     def overlap_matrix(self) -> tuple:
         """Defines the epitope overlap matrix."""
-        return tuple(map(tuple, np.eye(self.n_ep)))
+        mat = np.eye(self.n_ep)
+        mat[0, 1:] = self.epitope_overlap #overlap between conserved epitope and each variable epitope
+        mat[1:, 0] = self.epitope_overlap #symmetric matrix
+        return tuple(map(tuple, mat))
     
     @property
     def r_igm(self) -> float:
@@ -616,8 +625,18 @@ class Parameters():
         if self.updated_params_file:
             updated_params = utils.read_json(file_path)
             for key, value in updated_params.items():
+                #check that parameter is in attributes
                 if not hasattr(self, key):
                     raise AttributeError(f"The parameter '{key}' is not a valid attribute of the Parameters class.")
+                expected_type = self.__annotations__.get(key)
+                #check if the value is an instance of the expected type
+                if expected_type:
+                    try:
+                        # Attempt to cast the value to the expected type
+                        value = expected_type(value)
+                    except (TypeError, ValueError) as e:
+                        # Raise TypeError with additional information if casting fails
+                        raise TypeError(f"Cannot cast value '{value}' to type {expected_type} for attribute '{key}': {e}")
                 setattr(self, key, value)
 
 
