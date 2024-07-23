@@ -1,0 +1,8 @@
+# Ignore JSON files
+*.json 
+
+#Ignore PKL files
+*.pkl
+
+#Ignore 
+*.sbatch
