@@ -41,6 +41,11 @@ class Parameters():
     File name for writing the simulation data.
     """
 
+    write_simulation : bool = True
+    """
+    Whether to write the simulation.pkl file
+    """
+
     overwrite: bool = True
     """
     Whether to overwrite existing files.
@@ -100,11 +105,6 @@ class Parameters():
     """
     The number of epitopes on each antigen that are variable.
     """
-    
-    n_ep: int = n_conserved_epitopes + n_ag * n_variable_epitopes
-    """
-    The number of distinct epitopes in circulation across all antigens.
-    """
 
     epitope_overlap: float = 0.
     """
@@ -153,12 +153,12 @@ class Parameters():
     The birth rate of GC entry (day-1).
     """
     
-    bcell_birth_rate: float = 2.5
+    bcell_birth_rate: float = 4
     """
     The birth rate of B cells (day-1).
     """
     
-    bcell_death_rate: float = 0.5
+    bcell_death_rate: float = 2.2
     """
     The death rate of B cells (day-1).
     """
@@ -168,7 +168,7 @@ class Parameters():
     The half-life of plasma cells (days).
     """
     
-    memory_half_life: float = 22
+    memory_half_life: float = 11
     """
     The half-life of memory cells (days).
     """
@@ -196,16 +196,15 @@ class Parameters():
 
     Esat: float = 10.
     """
-    Energy saturation level. If energy is above this value, it is clipped.
+    Affinity saturation level. If energy is above this value, it is clipped.
     """
 
     E0: float = 6
     """
-    Initial energy level.
+    Initial affinity level.
     """
 
     E1hs: tuple = (7, 6.6, 6.6)
-    assert len(E1hs) == n_ep
     """
     Energy levels for geometric distribution for each epitope.
     """
@@ -237,14 +236,16 @@ class Parameters():
     Affinity thresholds for counting cells for the simulation history.
     """
     
-    C0: float = 0.008
+    C0: float = 1.0
     """
     Value to normalize concentrations (nM).
+    Leerang used 0.008 (magic random number). I wil set reference to 1 nM.
+    Previously used IC-FDC = 1nM / 0.008 = 125. So previous results correspond to 125 nM for ic-fdc.
     """
 
     naive_target_fractions: tuple = (0.8, 0.15, 0.05)
     assert np.isclose(sum(naive_target_fractions), 1)
-    assert len(naive_target_fractions) == n_ep
+    
     """
     Fractions of naive cells targeting each epitope.
     """
@@ -330,7 +331,7 @@ class Parameters():
     Concentration threshold, below which it is set to 0.
     """
     
-    delay: float = 2.
+    delay: float = 0.
     """
     Time delay before GC-derived plasma cells produce Abs (days).
     """
@@ -345,9 +346,11 @@ class Parameters():
     Maximum ka value allowed (nM-1).
     """
     
-    production: float = 1
+    production: float = 0.5
     """
-    Ab production rate (day-1).
+    Ab production rate is 0.01 * production / n_gc. 
+    production of 0.5 is equivalen to 2.5e-5 nM per day per PC, 
+    which matches measurement of 174 IgG/s per PC (assumes volume of 1 mL).
     """
     
     seeding_tcells: float = 10
@@ -452,6 +455,14 @@ class Parameters():
     def n_history_timepoints(self) -> int:
         """Number of history timepoints."""
         return len(self.history_times)
+    
+    @property
+    def n_ep(self) -> int:
+        """The number of distinct epitopes in circulation across all antigens."""
+        n_ep = self.n_conserved_epitopes + self.n_ag * self.n_variable_epitopes
+        assert(len(self.E1hs) == n_ep)
+        assert(len(self.naive_target_fractions) == n_ep)
+        return n_ep
 
     @property
     def overlap_matrix(self) -> tuple:
@@ -500,14 +511,12 @@ class Parameters():
         # rho values (conservation) of epitopes across strains n_ep_per_ag x n_ag.
         # i.e. rho[0, 1] = how similar ep0 on ag2 is to ep0 on ag 1.
         ag_ep_matrix = np.zeros((self.n_ep, self.n_ag))
-        #first n_conserved_epitopes rows are 1 for all antigens
-        ag_ep_matrix[0:self.n_conserved_epitopes, :] = 1
-        #the next rows have a single 1 for each antigen
-        ag = 0
-        for ep in range(self.n_conserved_epitopes, self.n_ep):
-            ag_ep_matrix[ep, ag] = 1
-            ag += 1
-
+        #first rows are the immunodominant variable epitopes, which each have a single 1 for each antigen
+        for ag in range(self.n_ag):
+            for ep in range(0, self.n_variable_epitopes):
+                ag_ep_matrix[ag*self.n_variable_epitopes + ep, ag] = 1
+        #last n_conserved_epitopes rows are 1 for all antigens
+        ag_ep_matrix[(self.n_ep - self.n_conserved_epitopes):, :] = 1
         return ag_ep_matrix
 
 

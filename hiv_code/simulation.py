@@ -117,6 +117,10 @@ class Simulation(Parameters):
                     self.n_history_timepoints, 
                     self.n_ep 
                 )),
+                'ic_fdc_eff_conc': np.zeros((
+                    self.n_history_timepoints, 
+                    self.n_ep 
+                )),
                 'ab_conc': np.zeros((
                     self.n_history_timepoints, 
                     self.n_ep,
@@ -533,6 +537,7 @@ class Simulation(Parameters):
 
         # Concentrations
         self.history['conc']['ic_fdc_conc'][history_idx] = self.concentrations.ic_fdc_conc
+        self.history['conc']['ic_fdc_eff_conc'][history_idx] = self.ag_eff_conc
         self.history['conc']['ab_conc'][history_idx] = self.concentrations.ab_conc
         self.history['conc']['ab_ka'][history_idx] = self.concentrations.ab_ka
 
@@ -630,6 +635,7 @@ class Simulation(Parameters):
         self.history = {}
         self.naive_bcells = []
         self.precalculated_dEs = []
-        self.check_overwrite(self, self.sim_path)
+        if self.write_simulation:
+            self.check_overwrite(self, self.sim_path)
 
         print('SIMULATION COMPLETE.')

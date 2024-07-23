@@ -10,17 +10,12 @@ import numpy as np
 import collections.abc
 from pathlib import Path
 from itertools import product
-import subprocess
 import sys
 import os
-import re
-import pdb
 sys.path.append(os.getcwd())
 
 from hiv_code import utils
-
-OUTPUT_DIR = Path('/home/gridsan/dkannan/git-remotes/gc_dynamics/sweeps')
-INPUT_SUFFIX = ".yaml" 
+from scripts import SWEEP_DIR, INPUT_SUFFIX, clean_up_log_files
 
 def get_values_from_sweep_config(param_sweep_config):
     """ Get the values to sweep from the sweep config specifications.
@@ -52,11 +47,6 @@ def get_values_from_sweep_config(param_sweep_config):
 
 def process_sweep_file(sweep_file):
     """ Parse file that specifies parameters to sweep.
-
-    TODO: rather than lump 'seed' into sweep_param_keys, keep it as a separate list
-    then when you write json, make one experiment directory per unique parameter set apart from seed.
-    there will then be n_sim_replicates json files in each subdirectory where only the seed
-    parameters differs among them.
     
     Returns:
         run_config : dict
@@ -167,7 +157,7 @@ def write_analysis_file(slurm_file, run_config):
     with open(slurm_file, 'w+') as f:
         f.write('#!/bin/bash \n')
         f.write(f'#SBATCH -p {run_config["partition"]} \n')
-        f.write(f'#SBATCH -c {run_config["cpus_per_task"]} \n')
+        f.write(f'#SBATCH -c {run_config["cpus_per_analysis"]} \n')
         f.write(f'#SBATCH -o log_files/{run_config["sweep_name"]}.analysis.log-%A-%a \n')
 
         f.write(f'source /etc/profile \n')
@@ -203,7 +193,7 @@ def write_input_json_files(sweep_dir, sweep_param_keys, sweep_param_values, num_
 def submit_array_job():
     sweep_name = str(sys.argv[1]) 
     sweep_file = sweep_name + INPUT_SUFFIX
-    sweep_dir = OUTPUT_DIR/sweep_name
+    sweep_dir = SWEEP_DIR/sweep_name
 
     try:
         run_config, sweep_param_keys, sweep_param_values, num_sim_repeats = process_sweep_file(sweep_dir/sweep_file)
@@ -220,6 +210,7 @@ def submit_array_job():
         jobid = output.split()[-1]
     subprocess.run(['sbatch', f'--depend=afterany:{jobid}', str(sweep_dir/"run_analysis.sbatch")])
     #clean up log files here:
+    clean_up_log_files(sweep_name + ".analysis")
 
 if __name__ == "__main__":
     submit_array_job()

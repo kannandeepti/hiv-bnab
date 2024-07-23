@@ -17,6 +17,7 @@ import functools
 import hiv_code
 from hiv_code.simulation import Simulation
 from hiv_code import utils
+from scripts import SWEEP_DIR, PLOT_DIR
 
 slide_width = 11.5
 half_slide_width = 5.67
@@ -29,9 +30,11 @@ pres_params = {'axes.edgecolor': 'black',
                   'savefig.format': 'pdf',
                   'pdf.fonttype' : 42,
                   'ps.fonttype' : 42,
+                  'figure.titlesize' : 20,
+                  'figure.labelsize' : 20,
                   'axes.titlesize': 20,
                   'axes.labelsize': 18,
-                  'legend.fontsize': 18,
+                  'legend.fontsize': 16,
                   'xtick.labelsize': 16,
                   'ytick.labelsize': 16,
                   'text.usetex': True,
@@ -61,9 +64,6 @@ pres_params = {'axes.edgecolor': 'black',
                   'lines.linewidth':2}
 plt.rcParams.update(pres_params)
 
-SWEEP_DIR = Path('/home/gridsan/dkannan/git-remotes/gc_dynamics/sweeps')
-PLOT_DIR = Path('/home/gridsan/dkannan/git-remotes/gc_dynamics/plots')
-
 def darken_color(color, factor):
     """
     Darkens the given color by the specified factor.
@@ -71,6 +71,50 @@ def darken_color(color, factor):
     r, g, b = mcolors.to_rgb(color)
     h, l, s = colorsys.rgb_to_hls(r, g, b)
     return colorsys.hls_to_rgb(h, max(0, l - factor), s)
+
+def resort_directories(sweep_dir):
+    """ Make sure all expirement directories within sweep_i directories have the same parameters.
+    If not, resort the directories so that this structure is maintained. """
+
+    sweep_dir = Path(sweep_dir)
+    mapping_df = map_simdir_to_param(SWEEP_DIR/sweep_dir)
+    group_keys = [col for col in mapping_df.columns if col not in ['path', 'seed']]
+    dfs = []
+    for param_dir in sweep_dir.iterdir():
+        if param_dir.is_dir():
+            for exp_dir in param_dir.iterdir():
+                if exp_dir.is_dir():
+                    #extract parameters used in this simulation
+                    params = utils.read_json(exp_dir/f"parameters.json")
+                    mapping_dict = {}
+                    for key in params:
+                        if key == "E1hs":
+                            n_ep = params["n_conserved_epitopes"] + params["n_ag"] * params["n_variable_epitopes"]
+                            for i in range(n_ep):
+                                mapping_dict[f"E{i+1}h"] = np.round(params["E1hs"][i], decimals=1)
+                        elif key == "naive_target_fractions":
+                            for i in range(len(swept_params[key])):
+                                #naive target fraction (ntf)
+                                mapping_dict[f"ntf{i+1}"] = swept_params["naive_target_fractions"][i]
+                        elif key == "f_ag":
+                            for i in range(len(swept_params[key])):
+                                #naive target fraction (ntf)
+                                mapping_dict[f"f_ag{i+1}"] = swept_params["f_ag"][i]
+                        elif key != "experiment_dir" and key != "updated_params_file":
+                            value = params[key]
+                            mapping_dict[key] = tuple(value) if isinstance(value, list) else value
+                    #Identify which sweep directory this experiment belongs in based on parameters
+                    mask = pd.Series([True] * len(mapping_df))
+                    for key, value in mapping_dict.items():
+                        if key in group_keys:
+                            mask &= (mapping_df[key] == value)
+                    matching_df = mapping_df[mask]
+                    assert(len(matching_df['path'].values) == 1)
+                    matching_sweep_dir = matching_df["path"].values[0]
+                    exp_dir.rename(matching_sweep_dir / exp_dir.name)
+                    #path to directory containing replicates of the same parameter set
+                    mapping_dict["path"] = exp_dir
+                    dfs.append(mapping_dict)
 
 def map_simdir_to_param(sweepdir):
     """ Create a DataFrame which contains the relevant parameter values from the simulation
@@ -91,6 +135,14 @@ def map_simdir_to_param(sweepdir):
                     n_ep = swept_params["n_conserved_epitopes"] + swept_params["n_ag"] * swept_params["n_variable_epitopes"]
                     for i in range(n_ep):
                         mapping_dict[f"E{i+1}h"] = np.round(swept_params["E1hs"][i], decimals=1)
+                elif key == "naive_target_fractions":
+                    for i in range(len(swept_params[key])):
+                        #naive target fraction (ntf)
+                        mapping_dict[f"ntf{i+1}"] = swept_params["naive_target_fractions"][i]
+                elif key == "f_ag":
+                    for i in range(len(swept_params[key])):
+                        #naive target fraction (ntf)
+                        mapping_dict[f"f_ag{i+1}"] = swept_params["f_ag"][i]
                 elif key != "experiment_dir":
                     mapping_dict[key] = swept_params[key]
             #path to directory containing replicates of the same parameter set
@@ -100,14 +152,20 @@ def map_simdir_to_param(sweepdir):
     df = pd.DataFrame(dfs)
     return df
 
+def get_unmasked_ag(ig_conc, ag_conc, ka):
+    term1 = ag_conc + ig_conc + 1/ka
+    term2 = np.emath.sqrt(np.square(term1) - 4 * ag_conc * ig_conc)
+    IC = (term1 - term2) / 2
+    IC = np.nan_to_num(IC, 0)
+    return (ag_conc - IC)
+
 def collapse_replicates(param_dir):
     """ Record data from all replicates in one data structure, results, which we write
     to a pickle file."""
 
     #loop through subdirectories of each path, extract concentrations and average them
-    #other summary statistics? 
-    #write to a summary file
     results = {}
+    #assumes all simulation directories within param_dir have the same parameters except for random seed
     replicates = [expdir for expdir in param_dir.iterdir() if expdir.is_dir()]
     nreplicates = len(replicates)
     if nreplicates == 0:
@@ -122,20 +180,23 @@ def collapse_replicates(param_dir):
     fields = ["plasma_gc", "memory_gc", "plasma_egc", "memory_egc", "gc"]
     for field in fields:
         results[field] = np.copy(dummy_array)
-    concentrations = ["ab_conc", "ab_ka", "titer"]
+    concentrations = ["ic_fdc_conc", "ab_conc", "ab_ka", "ic_fdc_eff_conc", "titer"]
     for conc in concentrations:
         results[conc] = np.copy(dummy_array)
     mean_fn = functools.partial(np.mean, axis=1)
     
     for j, expdir in enumerate(replicates):
         history = utils.expand(utils.read_pickle(expdir/'history.pkl'))
+        fdc_conc = history['conc']['ic_fdc_conc']
         ab_conc = history['conc']['ab_conc']
         ka = history['conc']['ab_ka']
 
         for i in range(n_ep):
             #record concentration dynamics from each replicate
+            results["ic_fdc_conc"][:, j, i] = fdc_conc[:, i]
             results["ab_conc"][:, j, i] = ab_conc[:, i]
             results["ab_ka"][:, j, i] = ka[:, i]
+            results["ic_fdc_eff_conc"][:, j, i] = get_unmasked_ag(ab_conc[:, i], fdc_conc[:, i], ka[:, i])
             results["titer"][:, j, i] = (ka * ab_conc)[:, i]
             #count number of B cells above affinity 10^6
             for field in fields[:-1]:
@@ -162,54 +223,57 @@ def plot_averages(df):
     print(swept_params)
     mean_fn = functools.partial(np.mean, axis=1)
     for path, mat in df.groupby('path'):
-        plotname = ''
-        for key in swept_params:
-            plotname += f'_{key}_{mat[key].iloc[0]}'
-        plottitle = ''
-        nparams = len(swept_params)
-        for i in range(nparams):
-            plottitle += f'{swept_params[i]}={mat[swept_params[i]].iloc[0]}, '
-        
-        results = utils.read_pickle(Path(path)/'conc_cells.pkl')
-        nreplicates = results["plasma_gc"].shape[1]
-        plottitle += f'replicates={nreplicates}'
-        time = results["time"]
-        
-        """ PLOT PLASMA B CELL NUMBER, [Ab], Ka OVER TIME """
-        fig = plt.figure(figsize=(9.5, 5.75))
-        plot_idx = 1
-        colors = sns.color_palette("Set2", n_ep)
-        for bcell in bcell_types:
-            plt.subplot(2, 2, plot_idx)
+        res_file = Path(path)/'conc_cells.pkl'
+        if res_file.exists():
+            #for parameters that were swept, include their values in the figure title / file name
+            plotname = ''
+            for key in swept_params:
+                plotname += f'_{key}_{mat[key].iloc[0]}'
+            plottitle = ''
+            nparams = len(swept_params)
+            for i in range(nparams):
+                plottitle += f'{swept_params[i]}={mat[swept_params[i]].iloc[0]}, '
+            
+            results = utils.read_pickle(res_file)
+            nreplicates = results["plasma_gc"].shape[1]
+            plottitle += f'replicates={nreplicates}'
+            time = results["time"]
+            
+            """ PLOT PLASMA B CELL NUMBER, [Ab], Ka OVER TIME """
+            fig = plt.figure(figsize=(9.5, 5.75))
+            plot_idx = 1
+            colors = sns.color_palette("Set2", n_ep)
+            for bcell in bcell_types:
+                plt.subplot(2, 2, plot_idx)
+                for i in range(n_ep):
+                    plt.plot(time, results[bcell][:, :, i], lw=.3, color=colors[i], label='_nolegend_')
+                    plt.plot(time, mean_fn(results[bcell][:, :, i]), color=darken_color(colors[i], 0.2), lw=2)
+                plt.yscale('log')
+                plt.title(f'{bcell} bcells with $K_a > 10^6M$')
+                plt.ylim([1e0, 1e7])
+                plt.legend([f'ep{i+1}' for i in range(n_ep)], loc="lower right")
+                plot_idx += 1
+            for j, conc in enumerate(concentrations):
+                plt.subplot(2, 2, plot_idx)
+                for i in range(n_ep):
+                    plt.plot(time, results[conc][:, :, i], lw=.3, color=colors[i], label='_nolegend_')
+                    plt.plot(time, mean_fn(results[conc][:, :, i]), color=darken_color(colors[i], 0.2), lw=2)
+                plt.yscale('log')
+                plt.title(conc_titles[j])
+                plt.ylim([1e-5, 1e3])
+                plt.legend([f'ep{i+1}' for i in range(n_ep)], loc="lower right")
+                plot_idx += 1
+            fig.suptitle(plottitle)
+            fig.supxlabel('time (days)')
+            fig.tight_layout()
+            plt.savefig(PLOT_DIR/f"bcells_concs{plotname}.png")
+            
+            """ Compute mean GC size / titer against each epitope at end of simulation """
+            summary_stats = {'path' : path}
             for i in range(n_ep):
-                plt.plot(time, results[bcell][:, :, i], lw=.3, color=colors[i], label='_nolegend_')
-                plt.plot(time, mean_fn(results[bcell][:, :, i]), color=darken_color(colors[i], 0.2), lw=2)
-            plt.yscale('log')
-            plt.title(f'{bcell} bcells with $K_a > 10^6M$')
-            plt.ylim([1e0, 1e7])
-            plt.legend([f'ep{i+1}' for i in range(n_ep)], loc="lower right")
-            plot_idx += 1
-        for j, conc in enumerate(concentrations):
-            plt.subplot(2, 2, plot_idx)
-            for i in range(n_ep):
-                plt.plot(time, results[conc][:, :, i], lw=.3, color=colors[i], label='_nolegend_')
-                plt.plot(time, mean_fn(results[conc][:, :, i]), color=darken_color(colors[i], 0.2), lw=2)
-            plt.yscale('log')
-            plt.title(conc_titles[j])
-            plt.ylim([1e-5, 1e3])
-            plt.legend([f'ep{i+1}' for i in range(n_ep)], loc="lower right")
-            plot_idx += 1
-        fig.suptitle(plottitle)
-        fig.supxlabel('time (days)')
-        fig.tight_layout()
-        plt.savefig(PLOT_DIR/f"bcells_concs{plotname}.png")
-        
-        """ Compute mean GC size / titer against each epitope at end of simulation """
-        summary_stats = {'path' : path}
-        for i in range(n_ep):
-            summary_stats[f'ep{i+1}_titer_d400'] = np.mean(results["titer"][-1, :, i])
-        summary_stats['gc_size_d400'] = np.sum(np.mean(results["gc"][-1, :, :], axis=0)) #take last day, sum over n_ep
-        stats_list.append(summary_stats)
+                summary_stats[f'ep{i+1}_titer_d400'] = np.mean(results["titer"][-1, :, i])
+            summary_stats['gc_size_d400'] = np.sum(np.mean(results["gc"][-1, :, :], axis=0)) #take last day, sum over n_ep
+            stats_list.append(summary_stats)
     
     stats_df = pd.DataFrame(stats_list)
     df = pd.merge(df, stats_df, on='path', how='left')
@@ -217,6 +281,7 @@ def plot_averages(df):
 
 if __name__ == "__main__":
     sweep_dir = sys.argv[1]
+    resort_directories(SWEEP_DIR/sweep_dir)
     df = map_simdir_to_param(SWEEP_DIR/sweep_dir)
     df = plot_averages(df)
     df.to_csv((SWEEP_DIR/sweep_dir)/'sweep_map.csv', index=False)
