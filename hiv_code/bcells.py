@@ -64,6 +64,7 @@ class Bcells(Parameters):
             'gc_lineage',
             'lineage',
             'target_epitope',
+            'memory_reentry_tag', #1 if memory cell that re-enters naive pool, 0 otherwise
             'variant_affinities',
             'activated_time',
         ]
@@ -90,8 +91,9 @@ class Bcells(Parameters):
             (self.initial_number, self.n_res), dtype=int
         ))
         self.gc_lineage = np.zeros(self.initial_number, dtype=int)
-        self.lineage = np.zeros(self.initial_number, dtype=int)                   
-        self.target_epitope = np.zeros(self.initial_number, dtype=int)                              
+        self.lineage = np.zeros(self.initial_number, dtype=int)    
+        self.target_epitope = np.zeros(self.initial_number, dtype=int)  
+        self.memory_reentry_tag = np.zeros(self.initial_number, dtype=int)                            
         self.variant_affinities = np.zeros((self.initial_number, self.n_var))             
         self.activated_time = np.zeros(self.initial_number)                                          
 
@@ -148,6 +150,9 @@ class Bcells(Parameters):
             shape=self.activated_time.shape
         ) + current_time + (0.5 * self.dt if shift else 0)
     
+    def set_memory_reentry_tag(self) -> None:
+        """ Tag all bcells in this population as memory cells that are re-entering naive pool. """
+        self.memory_reentry_tag = np.ones(self.lineage.size, dtype=int) 
 
     def get_dE(
         self, 
@@ -231,7 +236,7 @@ class Bcells(Parameters):
         return birth_signal
 
 
-    def get_seeding_idx(self, conc: np.ndarray) -> np.ndarray:
+    def get_seeding_idx(self, conc: np.ndarray, tcell: float) -> np.ndarray:
         """Finds the indices of Bcells that will enter GC.
         
         Args:
@@ -254,7 +259,7 @@ class Bcells(Parameters):
     
         if activated.sum(): # at least one B cell is intrinsically activated
             lambda_ = self.get_birth_signal(
-                activation_signal, activated, self.seeding_tcells, self.gc_entry_birth_rate
+                activation_signal, activated, tcell, self.gc_entry_birth_rate
             )
             selected = np.random.uniform(size=activated.shape) < lambda_ * self.dt
             incoming_naive = activated & selected
@@ -342,7 +347,7 @@ class Bcells(Parameters):
         return new_bcells
     
     
-    def get_seeding_bcells(self, conc: np.ndarray) -> Self:
+    def get_seeding_bcells(self, conc: np.ndarray, tcell: float) -> Self:
         """Get a copy of GC-seeding Bcells.
 
         Args:
@@ -352,7 +357,7 @@ class Bcells(Parameters):
         Returns:
             Copies of the seeding Bcells.
         """
-        seeding_idx = self.get_seeding_idx(conc)
+        seeding_idx = self.get_seeding_idx(conc, tcell)
         return self.get_bcells_from_idx(seeding_idx)
     
 
@@ -523,4 +528,51 @@ class Bcells(Parameters):
                 n_cells = (variant_affinities > affinity_threshold).sum(axis=0)
                 num_above_aff[:, ep, aff_idx] = n_cells
         return num_above_aff
+    
+    def get_num_in_aff_bins(self) -> np.ndarray:
+        """Get the number of bcells with affinities in different affinity bins.
+        
+        Thresholds are specified in affinities_history. Numbers are also
+        specific to each targeted epitope and each variant Ag.
+
+        Returns:
+            num_above_aff: Number of bcells with affinity above thresholds.
+                np.ndarray (shape=(n_var, n_ep, n_affinities))
+        """
+        num_in_aff = np.zeros(
+            (self.n_var, self.n_ep, len(self.affinity_bins))
+        )
+        for aff_idx, affinity_bin in enumerate(self.affinity_bins):
+            for ep in range(self.n_ep):
+                variant_affinities = self.variant_affinities[
+                    self.target_epitope == ep
+                ]
+                if aff_idx == 0: #first bin
+                    affinities_in_range = (variant_affinities <= affinity_bin) 
+                else:
+                    affinity_prev_bin = self.affinity_bins[aff_idx - 1]
+                    affinities_in_range = (variant_affinities > affinity_prev_bin) & (variant_affinities <= affinity_bin) 
+                n_cells = (affinities_in_range).sum(axis=0)
+                num_in_aff[:, ep, aff_idx] = n_cells
+        return num_in_aff
+    
+    def get_num_entry(self) -> np.ndarray:
+        """ Get the total number of bcells across all affinities that target each epitope
+        on each variant. Separate out bcells that are memory cells which re-entered gc (last
+        dimension of returned array)
+
+        Returns:
+            total_num : Number of bcells that are naive (0) or were memory cells tha re-entered (1) 
+                np.ndarray (shape=(n_var, n_ep, 2))
+        """
+        total_num = np.zeros(
+            (self.n_var, self.n_ep, 2)
+        )
+        for ep in range(self.n_ep):
+            for tag in [0, 1]:
+                cells_per_ep = (self.target_epitope == ep) & (self.memory_reentry_tag == tag)
+                n_cells = cells_per_ep.sum(axis=0)
+                total_num[:, ep, tag] = n_cells
+        return total_num
+
 

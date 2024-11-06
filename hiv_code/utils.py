@@ -115,7 +115,11 @@ def write_json(data: dict, file: str) -> None:
     data_converted = convert_numpy_objects(data)
     with open(file, 'w') as f:
         json.dump(data_converted, f)
-    
+
+def write_yaml(data: dict, file: str) -> None:
+    data_converted = convert_numpy_objects(data)
+    with open(file, 'w') as f:
+        return yaml.dump(data_converted, f) 
 
 def read_json(file: str) -> dict:
     with open(file, 'r') as f:

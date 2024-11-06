@@ -1,6 +1,5 @@
 import dataclasses
 import os
-from pydantic import BaseModel
 import numpy as np
 
 from . import utils
@@ -41,7 +40,7 @@ class Parameters():
     File name for writing the simulation data.
     """
 
-    write_simulation : bool = True
+    write_simulation : bool = False
     """
     Whether to write the simulation.pkl file
     """
@@ -153,12 +152,12 @@ class Parameters():
     The birth rate of GC entry (day-1).
     """
     
-    bcell_birth_rate: float = 4
+    bcell_birth_rate: float = 2.77
     """
     The birth rate of B cells (day-1).
     """
     
-    bcell_death_rate: float = 2.2
+    bcell_death_rate: float = 0.58
     """
     The death rate of B cells (day-1).
     """
@@ -234,6 +233,13 @@ class Parameters():
     affinities_history: tuple[float] = (6., 7., 8., 9.)
     """
     Affinity thresholds for counting cells for the simulation history.
+    """
+
+    affinity_bins: tuple[float] = tuple(
+        np.arange(E0, 16.2, 0.2)
+    )
+    """
+    Affinity bins (right edge) for GC/EGC B cells for simulation history.
     """
     
     C0: float = 1.0
@@ -353,29 +359,29 @@ class Parameters():
     which matches measurement of 174 IgG/s per PC (assumes volume of 1 mL).
     """
     
-    seeding_tcells: float = 10
+    seeding_tcells_gc: float = 10
     """
-    Tcell amount for seeding GCs / EGCs.
+    Tcell amount for seeding GCs.
     """
+
+    seeding_tcells_egc: float = 10
+    """
+    Tcell amount for seeding single EGC.
+    """ 
     
-    tmax: int = 200
-    """
-    Maximum time allowed for n_tcells_arr (days).
-    """
-    
-    n_tfh: float = 200
+    n_tfh_gc: float = 200
     """
     number of Tfh in each GC (constant)
+    """
+
+    n_tfh_egc: float = 200
+    """
+    number of Tfh in EGC (constant)
     """
 
     tspan_dt: float = 1. # XXX
     """
     Timestep to save results in history (days).
-    """
-    
-    d_Tfh: float = 0.01
-    """
-    Time constant in the exponential decay of tcells (day-1).
     """
 
     mutate_start_time: float = 6.
@@ -534,34 +540,7 @@ class Parameters():
             sigma[ep_idx] = np.array([
                 [1.]
             ])
-        return sigma
-
-
-    @property
-    def n_tcells_arr(self) -> np.ndarray:
-        """Calculate tcell amounts over time spaced dt apart.
-        
-        Returns:
-            n_tcells_arr: Number of tcells over time.
-                np.ndarray (shape=n_timesteps,)
-        """
-        if self.persistent_infection:
-            n_tcells_arr = np.tile(self.n_tfh, self.n_timesteps)
-        
-        else:
-            tspan = np.arange(0, self.tmax + self.dt, self.dt)
-            n_tcells_arr = np.zeros(shape=tspan.shape)
-
-            if self.tmax <= 14:
-                n_tcells_arr = self.n_tmax * tspan / 14
-            else:
-                d14_idx = round(14 / self.dt + 1)
-                n_tcells_arr[:d14_idx] = self.n_tmax * tspan[:d14_idx] / 14
-                for i in range(d14_idx, len(tspan)):
-                    n_tcells_arr[i] = n_tcells_arr[i - 1] * np.exp(-self.d_Tfh * self.dt)
-
-        return n_tcells_arr
-    
+        return sigma   
 
     @property
     def naive_bcells_arr(self) -> np.ndarray:

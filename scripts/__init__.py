@@ -2,7 +2,7 @@ from pathlib import Path
 import re
 import subprocess
 
-SWEEP_DIR = Path('/home/gridsan/dkannan/git-remotes/gc_dynamics/epitope_sweep')
+SWEEP_DIR = Path('/home/gridsan/dkannan/git-remotes/gc_dynamics/seeding_10_death_0.4_egc_ntfh_2000')
 PLOT_DIR = Path('/home/gridsan/dkannan/git-remotes/gc_dynamics/plots')
 LOG_DIR = Path('/home/gridsan/dkannan/git-remotes/gc_dynamics/log_files')
 INPUT_SUFFIX = ".yaml" 

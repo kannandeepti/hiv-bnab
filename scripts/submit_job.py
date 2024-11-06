@@ -10,6 +10,7 @@ import numpy as np
 import collections.abc
 from pathlib import Path
 from itertools import product
+import subprocess
 import sys
 import os
 sys.path.append(os.getcwd())
@@ -154,6 +155,9 @@ def write_analysis_file(slurm_file, run_config):
     TODO : LLMapReduce for sweep analysis
     
     """
+    if "ep_per_ag" not in run_config:
+        run_config["ep_per_ag"] = 3
+
     with open(slurm_file, 'w+') as f:
         f.write('#!/bin/bash \n')
         f.write(f'#SBATCH -p {run_config["partition"]} \n')
@@ -166,7 +170,7 @@ def write_analysis_file(slurm_file, run_config):
         f.write(f'source activate GCdynamics \n')
         f.write(f'export PATH=/home/gridsan/dkannan/.conda/envs/GCdynamics/bin:$PATH \n')
         f.write(f'echo $PATH \n')
-        f.write(f'python scripts/analyze_sweep.py {run_config["sweep_name"]} \n')
+        f.write(f'python scripts/analyze_sweep.py {run_config["sweep_name"]} {run_config["ep_per_ag"]}\n')
         f.write(f'conda deactivate \n')
 
 def write_input_json_files(sweep_dir, sweep_param_keys, sweep_param_values, num_sim_repeats):
@@ -208,7 +212,7 @@ def submit_array_job():
     if result.returncode == 0:
         output = result.stdout
         jobid = output.split()[-1]
-    subprocess.run(['sbatch', f'--depend=afterany:{jobid}', str(sweep_dir/"run_analysis.sbatch")])
+        subprocess.run(['sbatch', f'--depend=afterany:{jobid}', str(sweep_dir/"run_analysis.sbatch")])
     #clean up log files here:
     clean_up_log_files(sweep_name + ".analysis")
 

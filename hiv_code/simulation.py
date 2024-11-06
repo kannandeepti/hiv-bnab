@@ -98,6 +98,15 @@ class Simulation(Parameters):
         """
 
         self.history = {
+            'gc_entry' : {
+                'total_num': np.zeros((
+                    self.n_history_timepoints,
+                    self.n_gc,
+                    self.n_var,
+                    self.n_ep,
+                    2 #0 is naive, 1 is memory cell re-entry
+                ))
+            },
             'gc': {
                 'num_above_aff': np.zeros((
                     self.n_history_timepoints, 
@@ -105,6 +114,13 @@ class Simulation(Parameters):
                     self.n_var,
                     self.n_ep, 
                     len(self.affinities_history)
+                )),
+                'num_in_aff': np.zeros((
+                    self.n_history_timepoints, 
+                    self.n_gc,
+                    self.n_var,
+                    self.n_ep, 
+                    len(self.affinity_bins)
                 )),
                 'num_by_lineage': np.zeros((
                     self.n_history_timepoints, 
@@ -137,6 +153,12 @@ class Simulation(Parameters):
                     self.n_ep, 
                     len(self.affinities_history)
                 )),
+                'num_in_aff': np.zeros((
+                    self.n_history_timepoints, 
+                    self.n_var,
+                    self.n_ep, 
+                    len(self.affinity_bins)
+                )),
                 'num_by_lineage': np.zeros((
                     self.n_history_timepoints, 
                     self.n_naive_precursors
@@ -147,7 +169,7 @@ class Simulation(Parameters):
         self.history['memory_gc'] = copy.deepcopy(self.history['plasma_gc'])
         self.history['plasma_egc'] = copy.deepcopy(self.history['plasma_gc'])
         self.history['memory_egc'] = copy.deepcopy(self.history['plasma_gc'])
-
+        self.history['ep_to_lineage'] = [] #store the lineage index boundaries separating naive cells that target different epitopes
     
     def get_parameter_dict(self) -> None:
         """Write parameters to json file.
@@ -248,6 +270,8 @@ class Simulation(Parameters):
                     )
 
                 idx = idx_new
+            if gc_idx == 0:
+                self.history['ep_to_lineage'].append(idx)
         
         return naive_bcells
     
@@ -284,6 +308,7 @@ class Simulation(Parameters):
         self.dummy_bcells = Bcells(updated_params_file=self.updated_params_file)
 
         self.gc_bcells = [copy.deepcopy(self.dummy_bcells) for _ in range(self.n_gc)]
+        self.naive_cells_entry = [copy.deepcopy(self.dummy_bcells) for _ in range(self.n_gc)]
         self.naive_bcells = [self.get_naive_bcells(gc_idx) for gc_idx in range(self.n_gc)]
 
         self.plasma_gc_bcells = copy.deepcopy(self.dummy_bcells)
@@ -293,7 +318,7 @@ class Simulation(Parameters):
         self.plasmablasts = copy.deepcopy(self.dummy_bcells) # Doing nothing right now.
 
         self.set_death_rates()
-    
+
 
     def run_gc(self, gc_idx: int) -> None:
         """Run a single GC.
@@ -308,19 +333,22 @@ class Simulation(Parameters):
         Args:
             gc_idx: index of the GC
         """
-        seeding_bcells = self.naive_bcells[gc_idx].get_seeding_bcells(self.ag_eff_conc)
+        seeding_bcells = self.naive_bcells[gc_idx].get_seeding_bcells(self.ag_eff_conc, self.seeding_tcells_gc)
         for _ in range(self.naive_bcells_n_divide):
             seeding_bcells.add_bcells(seeding_bcells)
 
         # Set activated time
         seeding_bcells.set_activated_time(self.current_time)
 
+        #count number that entered in this time step
+        self.naive_cells_entry[gc_idx].add_bcells(seeding_bcells)
+
         # Seed
         self.gc_bcells[gc_idx].add_bcells(seeding_bcells)
         
         # Birth and differentiation
         daughter_bcells = self.gc_bcells[gc_idx].get_daughter_bcells(
-            self.ag_eff_conc, self.tcell
+            self.ag_eff_conc, self.n_tfh_gc
         )
         differentiated_bcells = daughter_bcells.differentiate_bcells(
             self.output_prob, 
@@ -350,7 +378,7 @@ class Simulation(Parameters):
 
         tcell is constant at the maximum value in the EGC, and multiplied by n_gc like Leerang does.
         """
-        seeding_bcells = self.memory_gc_bcells.get_seeding_bcells(self.ag_eff_conc)
+        seeding_bcells = self.memory_gc_bcells.get_seeding_bcells(self.ag_eff_conc, self.seeding_tcells_egc)
 
         # Set activated time
         seeding_bcells.set_activated_time(self.current_time)
@@ -359,7 +387,7 @@ class Simulation(Parameters):
         self.memory_egc_bcells.add_bcells(seeding_bcells)
 
         daughter_bcells = self.memory_egc_bcells.get_daughter_bcells(
-            self.ag_eff_conc, self.tcell #Leerang had self.nmax * self.n_gc
+            self.ag_eff_conc, self.n_tfh_egc #Leerang had self.nmax * self.n_gc
         )
         differentiated_bcells = daughter_bcells.differentiate_bcells(
             self.egc_output_prob, 
@@ -398,6 +426,8 @@ class Simulation(Parameters):
             memory_to_gc_bcells = self.memory_gc_bcells.get_bcells_from_idx(
                 memory_to_gc_idxs[gc_idx]
             )
+            #set memory re-entry tag to 1
+            memory_to_gc_bcells.set_memory_reentry_tag()
             #Add some memory cells to the naive pool to compete for seeding GCs
             self.naive_bcells[gc_idx].add_bcells(memory_to_gc_bcells)
             #self.gc_bcells[gc_idx].add_bcells(memory_to_gc_bcells)
@@ -497,6 +527,7 @@ class Simulation(Parameters):
             """
             
             num_above_aff = bcells.get_num_above_aff()
+            num_in_aff = bcells.get_num_in_aff_bins()
             num_by_lineage = np.histogram(
                 bcells.lineage, 
                 bins=np.arange(self.n_naive_precursors + 1) + 0.5
@@ -504,10 +535,12 @@ class Simulation(Parameters):
             
             if gc_idx:
                 history[name]['num_above_aff'][history_idx, gc_idx] = num_above_aff
+                history[name]['num_in_aff'][history_idx, gc_idx] = num_in_aff
                 history[name]['num_by_lineage'][history_idx, gc_idx] = num_by_lineage
 
             else:
                 history[name]['num_above_aff'][history_idx] = num_above_aff
+                history[name]['num_in_aff'][history_idx] = num_in_aff
                 history[name]['num_by_lineage'][history_idx] = num_by_lineage
 
             return history
@@ -519,6 +552,13 @@ class Simulation(Parameters):
             history_idx = np.argmin(time_diff)
         else:
             return
+        
+        # naive bcells that enter gc
+        for gc_idx, bcells in enumerate(self.naive_cells_entry):
+            self.history['gc_entry']['total_num'][history_idx, gc_idx] = self.naive_cells_entry[gc_idx].get_num_entry()
+            #reset the naive cell entry count
+            self.naive_cells_entry[gc_idx].reset_bcell_fields()
+            assert(self.naive_cells_entry[gc_idx].lineage.size == 0)
 
         # GC bcells
         for gc_idx, bcells in enumerate(self.gc_bcells):
@@ -549,7 +589,6 @@ class Simulation(Parameters):
         Run death phase for all bcell populations. Update the concentrations using plasma cells.
         Update the history dictionary.
         """
-        self.tcell: float = self.n_tcells_arr[self.timestep_idx]
         self.ag_eff_conc = self.concentrations.get_eff_ic_fdc_conc() #(n_ep,)
 
         # Before running GCs, create temporary memory bcells and store exported
