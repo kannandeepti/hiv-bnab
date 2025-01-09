@@ -10,6 +10,35 @@ import hiv_code
 from hiv_code import utils
 from hiv_code.simulation import Simulation
 from scripts import SWEEP_DIR, LOG_DIR, clean_up_log_files
+
+def enumerate_completed_tasks(sweep_name):
+    """ Determine which simulations have already been run in this sweep."""
+    sweep_dir = SWEEP_DIR/sweep_name
+    sweeps_ran = {} #dictionary mapping param_dir to list of seed replicates ran
+    for param_dir in sweep_dir.iterdir():
+        if param_dir.is_dir():
+            replicates_ran = []
+            for exp_dir in param_dir.iterdir():
+                if exp_dir.is_dir() and (exp_dir/'history.pkl').is_file():
+                    params = utils.read_json(exp_dir/'parameters.json')
+                    replicates_ran.append(params['seed'])
+            sweeps_ran[param_dir] = replicates_ran
+    return sweeps_ran
+
+def prune_completed_tasks(sweep_name, params_per_task):
+    """ If job gets interrupted or cancelled, determine which simulations
+    still need to be run. First, generate a list of all simulations that
+    have already been run within this sweep. Then remove any simulations 
+    that have already been run from params_per_task"""
+    sweeps_ran = enumerate_completed_tasks(sweep_name)
+    for input_file in params_per_task[:]:
+        if input_file.parent in sweeps_ran.keys():
+            replicates_ran = sweeps_ran[input_file.parent]
+            seed_num = int(str(input_file.stem).split('_')[-1])
+            if seed_num in replicates_ran:
+                #remove this input file from params_per_task
+                params_per_task.remove(input_file)
+    return params_per_task
     
 def batch_tasks(sweep_name):
     """
@@ -29,10 +58,15 @@ def batch_tasks(sweep_name):
     # batch to process with this task
     params_per_task = input_param_files[my_task_id: len(input_param_files): num_tasks]
     print(params_per_task)
+    params_per_task = prune_completed_tasks(sweep_name, params_per_task)
+    print(params_per_task)
     tic = time.time()
     sims_ran = 0
     for input_file in params_per_task:
-        sim = Simulation(input_file, parallel_run_idx=my_task_id)
+        #parallel run idx is a number that is appended to the end of the experiment directory  name
+        #choose this number to match the `seed` paramter (which replicate)
+        seed_num = str(input_file.stem).split('_')[-1]
+        sim = Simulation(input_file, parallel_run_idx=int(seed_num))
         sim.run()
         sims_ran += 1
 

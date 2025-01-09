@@ -472,10 +472,22 @@ class Parameters():
 
     @property
     def overlap_matrix(self) -> tuple:
-        """Defines the epitope overlap matrix."""
+        """Defines the epitope overlap matrix. Assumes conserved epitopes
+        overlap with variable epitopes by an amount specified by epitope_overlap.
+        
+        TODO : generalize to any number of epitopes
+        """
         mat = np.eye(self.n_ep)
-        mat[0, 1:] = self.epitope_overlap #overlap between conserved epitope and each variable epitope
-        mat[1:, 0] = self.epitope_overlap #symmetric matrix
+        if self.epitope_overlap > 0:
+            if self.n_ag == 2 and self.n_variable_epitopes == 1 and self.n_conserved_epitopes == 1:
+                mat[0:2, 2] = self.epitope_overlap
+                mat[2, 0:2] = self.epitope_overlap
+            elif self.n_ag == 2 and self.n_variable_epitopes == 0 and self.n_conserved_epitopes == 3:
+                mat[0, 1:] = self.epitope_overlap
+                mat[1:, 0] = self.epitope_overlap
+            else:
+                raise ValueError(f"Epitope overlap not implemented for n_ag={self.n_ag}, n_conserved={self.n_conserved_epitopes}," +
+                                 f" n_variable={self.n_variable_epitopes}")
         return tuple(map(tuple, mat))
     
     @property

@@ -1,5 +1,6 @@
 """
 Script to vary the number of shared epitopes between 2 antigens
+and run associated affinity maturation simulations.
 """
 from pathlib import Path
 import subprocess

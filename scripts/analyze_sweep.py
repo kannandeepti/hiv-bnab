@@ -336,5 +336,6 @@ if __name__ == "__main__":
     ep_per_ag = sys.argv[2]
     #resort_directories(SWEEP_DIR/sweep_dir)
     df = map_simdir_to_param(SWEEP_DIR/sweep_dir)
+    print(df['path'])
     df = plot_averages(df, sweep_dir, int(ep_per_ag))
     df.to_csv((SWEEP_DIR/sweep_dir)/'sweep_map.csv', index=False)
