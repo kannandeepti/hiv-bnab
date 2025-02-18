@@ -129,37 +129,37 @@ class Parameters():
     
     output_prob: float = 0.05
     """
-    The probability of exporting a birthed cell.
+    The probability of exporting a birthed GC B cell.
     """
     
     output_pc_fraction: float = 0.1
     """
-    The fraction of exported cells that are plasma cells.
+    The fraction of exported GC B cells that differentiate into plasma cells.
     """
     
     egc_output_prob: float = 1.
     """
-    The probability of export for EGCs.
+    The probability of exporting a birthed EGC B cell.
     """
     
     egc_output_pc_fraction: float = 0.6
     """
-    The fraction of exported cells that are plasma cells for EGCs.
+    The fraction of exported EGC B cells that differentiate into plasma cells.
     """
     
     gc_entry_birth_rate: float = 1
     """
-    The birth rate of GC entry (day-1).
+    The birth rate of GC/EGC entry (day-1).
     """
     
     bcell_birth_rate: float = 2.77
     """
-    The birth rate of B cells (day-1).
+    The birth rate of GC/EGC B cells (day-1).
     """
     
     bcell_death_rate: float = 0.58
     """
-    The death rate of B cells (day-1).
+    The death rate of GC B cells (day-1).
     """
     
     plasma_half_life: float = 4
@@ -179,8 +179,8 @@ class Parameters():
 
     naive_high_affinity_variants: tuple = tuple([0])
     """
-    Indices of variants that are initially higher affinity. Other variants
-    have affinities set to E0.
+    Indices of variants that are assigned germline affinities according to geometric distribution. 
+    Other variants have germline affinities set to E0.
     """
     
     naive_bcells_n_divide: int = 2
@@ -255,20 +255,10 @@ class Parameters():
     """
     Fractions of naive cells targeting each epitope.
     """
-    
-    w1: float = 0
-    """
-    Parameter for Ag capture saturation, "alternative Ag capture model".
-    """
-    
-    w2: float = 0.5
+
+    K: float = 0.5
     """
     Stringency of Ag capture.
-    """
-    
-    ag_eff: float = 0.01
-    """
-    Weighting between soluble Ag and FDC-bound Ag for calculating effective free Ag.
     """
     
     masking: int = 1
@@ -296,40 +286,10 @@ class Parameters():
     """
     Initial IgM concentration (nM).
     """
-
-    bnab_conc: float = 0.01
-    """
-    Concentration of administered bnAbs (fixed) (nm-1).
-    """
-    
-    deposit_rate: float = 24.
-    """
-    The deposit rate (day-1).
-    """
-
-    d_bnab: float = 0.
-    """
-    Decay rate of administered bnAbs. (Assume they don't decay)
-    """
-    
-    d_igm: float = np.log(2) / 28
-    """
-    Decay rate of IgM (day-1).
-    """
     
     d_igg: float = np.log(2) / 28
     """
     Decay rate of IgG (day-1).
-    """
-    
-    d_ag: float = 3.
-    """
-    Decay rate of antigen (day-1).
-    """
-    
-    d_IC: float = 0.15
-    """
-    Decay rate of immune complexes (day-1).
     """
     
     conc_threshold: float = 1e-10
@@ -389,52 +349,9 @@ class Parameters():
     Time to turn on mutations (days).
     """
 
-    ########################################
-    # Specific to bolus doses.
-    ########################################
-
-    persistent_infection: bool = True
-    """
-    Whether we are simulating a persistent infection (like HIV).
-    """
-    simulation_time: float = 400
-    """
-    For natural infection, how many days to run simulation for.
-    """
-
-    vax_timing: tuple[int] = (28, 28, 28)
-    """
-    The timing of vaccinations, in days.
-    """
-    
-    vax_idx: int = 0
-    """
-    The index of the current vaccination timing.
-    """
-    
-    k: int = 0
-    """
-    Value of k. XXX
-    """
-    
-    T: int = 0
-    """
-    Value of T. XXX
-    """
-
-    ag0: float = 10.
-    """
-    Initial antigen concentration (nM-1).
-    """
-
-    dose_time: float = 0.
-    """
-    Time to give the vaccine dose (days).
-    """
-
     egc_stop_time: float = 6.
     """
-    The time to stop EGCs (days).
+    The time to stop EGCs (days) if the case of a bolus immunization.
     """
     
     ################################################################
@@ -489,11 +406,6 @@ class Parameters():
                 raise ValueError(f"Epitope overlap not implemented for n_ag={self.n_ag}, n_conserved={self.n_conserved_epitopes}," +
                                  f" n_variable={self.n_variable_epitopes}")
         return tuple(map(tuple, mat))
-    
-    @property
-    def r_igm(self) -> float:
-        """Rate of IgM production (nM/day)."""
-        return self.igm0 * self.production / self.n_gc
 
     @property
     def r_igg(self) -> float:

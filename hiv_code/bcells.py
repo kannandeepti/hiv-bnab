@@ -198,12 +198,7 @@ class Bcells(Parameters):
             self.variant_affinities[:, 0], self.Esat
         )
         aff_term = 10 ** (energies - self.E0)
-        activation_signal = (conc_term * aff_term) ** self.w2
-
-        if self.w1 > 0:  # Alternative Ag capture model
-            num = (self.w1 + 1) * activation_signal
-            denom = self.w1 + activation_signal
-            activation_signal = num / denom
+        activation_signal = (conc_term * aff_term) ** self.K
 
         min_arr = np.minimum(activation_signal, 1)
         activated = min_arr > np.random.uniform(size=activation_signal.shape)
@@ -348,7 +343,7 @@ class Bcells(Parameters):
     
     
     def get_seeding_bcells(self, conc: np.ndarray, tcell: float) -> Self:
-        """Get a copy of GC-seeding Bcells.
+        """Get a copy of GC or EGC-seeding Bcells.
 
         Args:
             conc: Effective Ag concentration for each epitope.
@@ -413,6 +408,7 @@ class Bcells(Parameters):
                 ]
             ).squeeze()
 
+        original_mutation_states = np.atleast_1d(original_mutation_states)
         nonmutated_idx = np.where(original_mutation_states == 0)[0]
         mutated_idx = np.where(original_mutation_states == 1)[0]
         residues_nonmutated = mutated_residues[nonmutated_idx]

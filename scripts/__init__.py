@@ -2,9 +2,9 @@ from pathlib import Path
 import re
 import subprocess
 
-SWEEP_DIR = Path('/home/gridsan/dkannan/git-remotes/gc_dynamics/seeding_10_death_0.4_egc_ntfh_2000')
-PLOT_DIR = Path('/home/gridsan/dkannan/git-remotes/gc_dynamics/plots')
-LOG_DIR = Path('/home/gridsan/dkannan/git-remotes/gc_dynamics/log_files')
+SWEEP_DIR = Path('/home/gridsan/dkannan/git-remotes/hiv-bnab/seeding_10_death_0.4_egc_ntfh_2000')
+PLOT_DIR = Path('/home/gridsan/dkannan/git-remotes/hiv-bnab/plots')
+LOG_DIR = Path('/home/gridsan/dkannan/git-remotes/hiv-bnab/log_files')
 INPUT_SUFFIX = ".yaml" 
 
 def log_file_has_errors(log_file_path):

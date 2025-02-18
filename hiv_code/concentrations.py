@@ -112,7 +112,7 @@ class Concentrations(Parameters):
             self.ic_fdc_conc,                        # shape n_ep
             average_ka_per_epitope_with_overlap      # shape n_ep
         )
-
+        
         total_free_ic_fdc_conc = self.ic_fdc_conc - self.masking * masked_ic_fdc # shape (n_ep,)
         return total_free_ic_fdc_conc
     
