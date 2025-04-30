@@ -245,8 +245,6 @@ class Parameters():
     C0: float = 1.0
     """
     Value to normalize concentrations (nM).
-    Leerang used 0.008 (magic random number). I wil set reference to 1 nM.
-    Previously used IC-FDC = 1nM / 0.008 = 125. So previous results correspond to 125 nM for ic-fdc.
     """
 
     naive_target_fractions: tuple = (0.8, 0.15, 0.05)
@@ -349,9 +347,9 @@ class Parameters():
     Time to turn on mutations (days).
     """
 
-    egc_stop_time: float = 6.
+    simulation_time: float = 400
     """
-    The time to stop EGCs (days) if the case of a bolus immunization.
+    Number of days to run simulation for.
     """
     
     ################################################################
@@ -361,18 +359,12 @@ class Parameters():
     @property
     def n_timesteps(self) -> int:
         """Number of timesteps for this simulation."""
-        if self.persistent_infection:
-            return int(self.simulation_time / self.dt)
-        else:
-            return int(self.vax_timing[self.vax_idx] / self.dt)
+        return int(self.simulation_time / self.dt)
 
     @property
     def history_times(self) -> tuple:
         """Timepoints to save results in history (days)."""
-        if self.persistent_infection:
-            return tuple(np.arange(0, self.simulation_time, self.tspan_dt))
-        else:
-            return tuple(np.arange(0, self.vax_timing[self.vax_idx], self.tspan_dt))
+        return tuple(np.arange(0, self.simulation_time, self.tspan_dt))
 
     @property
     def n_history_timepoints(self) -> int:

@@ -188,7 +188,6 @@ class Simulation(Parameters):
         """Create path attributes. Experiments are labeled using their time.
         
         data_dir: path to the directory for a particular experiment
-        prev_sim_path: path to the sim file for the previous vax
         sim_path: path to the sim file for the current vax
         history_path: path to the history pickle file
         """
@@ -198,13 +197,6 @@ class Simulation(Parameters):
         self.history_path = self.data_dir / self.history_file_name
         self.sim_path = self.data_dir / self.simulation_file_name
         self.parameter_json_path = self.data_dir / self.param_file_name
-
-        if self.vax_idx > 0:
-            self.prev_sim_path = os.path.join(
-                self.experiment_dir, 
-                self.find_previous_experiment(), 
-                self.simulation_file_name
-            )
     
     def set_naive_bcells_per_bin(self) -> None:
         """Set the number of naive bcells per fitness bin, only integers allowed."""
@@ -442,43 +434,6 @@ class Simulation(Parameters):
         #then EGC seeding is still taken from the memory GC pool
         #self.memory_egc_bcells.add_bcells(memory_to_egc_bcells)
 
-    def read_checkpoint(self) -> None:
-        """Read previous simulation checkpoint, seed GCs and EGC.
-
-        memory_gc_bcells will contain all memory cells.
-        
-        If memory_to_gc_fraction > 0, then memory cells seed the GC.
-        """
-        # Read checkpoint and replace attributes
-        old_sim: Self = utils.read_pickle(self.prev_sim_path)
-        for attribute in self.attributes_to_replace:
-            setattr(self, attribute, getattr(old_sim, attribute))
-        self.reset_history()
-
-        # Create naive bcells and dEs
-        self.naive_bcells = [
-           self.get_naive_bcells(gc_idx) for gc_idx in range(self.n_gc)
-        ]
-
-
-        # If True, reset GCs and EGC
-        if self.reset_gc_egcs:
-            for gc_idx in range(self.n_gc):
-                self.gc_bcells[gc_idx] = copy.deepcopy(self.dummy_bcells)
-            self.memory_egc_bcells = copy.deepcopy(self.dummy_bcells)
-
-        # Reset activated times
-        for gc_idx in range(self.n_gc):
-            self.gc_bcells[gc_idx].set_activated_time(0, shift=False)
-        self.plasma_gc_bcells.set_activated_time(0, shift=False)
-        self.plasma_egc_bcells.set_activated_time(0, shift=False)
-        self.memory_gc_bcells.set_activated_time(0, shift=False)
-        self.memory_egc_bcells.set_activated_time(0, shift=False)
-
-        # Split memory into GCs and EGC
-        self.split_memory_bcells()
-
-
     def check_overwrite(self, data: Any, file_path: str) -> None:
         """Write file depending on if file exists and if overwriting is allowed.
         
@@ -600,8 +555,7 @@ class Simulation(Parameters):
             self.run_gc(gc_idx)
         self.memory_gc_bcells.add_bcells(self.temporary_memory_bcells)
         self.split_memory_bcells()
-        if self.current_time < self.egc_stop_time or self.persistent_infection:
-            self.run_egc()
+        self.run_egc()
 
         # Kill bcells
         self.set_death_rates()
@@ -639,10 +593,7 @@ class Simulation(Parameters):
         """
         start_time = time.perf_counter()
 
-        if self.vax_idx > 0:
-            self.read_checkpoint()
-        else:
-            self.create_populations()
+        self.create_populations()
 
         # Keeping this here so we can verify that dEs are the same across doses.
         print(f'{self.precalculated_dEs[0, 0, 0, 0] = }')
