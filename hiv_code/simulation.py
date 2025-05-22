@@ -48,7 +48,7 @@ class Simulation(Parameters):
         self.concentrations = Concentrations(self.updated_params_file)
         self.set_naive_bcells_per_bin()
         self.precalculated_dEs = np.zeros(
-            (self.n_gc, self.naive_bcells_int.sum(), self.n_res, self.n_var)
+            (self.n_gc, self.naive_bcells_int.sum(), self.n_residues, self.n_variants)
         )
 
         self.attributes_to_replace = [
@@ -102,7 +102,7 @@ class Simulation(Parameters):
                 'total_num': np.zeros((
                     self.n_history_timepoints,
                     self.n_gc,
-                    self.n_var,
+                    self.n_variants,
                     self.n_ep,
                     2 #0 is naive, 1 is memory cell re-entry
                 ))
@@ -111,14 +111,14 @@ class Simulation(Parameters):
                 'num_above_aff': np.zeros((
                     self.n_history_timepoints, 
                     self.n_gc,
-                    self.n_var,
+                    self.n_variants,
                     self.n_ep, 
-                    len(self.affinities_history)
+                    len(self.history_affinity_thresholds)
                 )),
                 'num_in_aff': np.zeros((
                     self.n_history_timepoints, 
                     self.n_gc,
-                    self.n_var,
+                    self.n_variants,
                     self.n_ep, 
                     len(self.affinity_bins)
                 )),
@@ -149,13 +149,13 @@ class Simulation(Parameters):
             'plasma_gc': {
                 'num_above_aff': np.zeros((
                     self.n_history_timepoints,
-                    self.n_var,
+                    self.n_variants,
                     self.n_ep, 
-                    len(self.affinities_history)
+                    len(self.history_affinity_thresholds)
                 )),
                 'num_in_aff': np.zeros((
                     self.n_history_timepoints, 
-                    self.n_var,
+                    self.n_variants,
                     self.n_ep, 
                     len(self.affinity_bins)
                 )),
@@ -249,16 +249,16 @@ class Simulation(Parameters):
                 naive_bcells.variant_affinities[
                     idx: idx_new, 
                     utils.get_other_idx(
-                        np.arange(self.n_var), 
+                        np.arange(self.n_variants), 
                         np.array(self.naive_high_affinity_variants)
                     )
                 ] = self.E0
 
                 dE = naive_bcells.get_dE(idx_new, idx, ep)
-                for var in range(self.n_var):
+                for var in range(self.n_variants):
 
                     self.precalculated_dEs[gc_idx, idx:idx_new, :, var] = np.reshape(
-                        dE[:, var], (idx_new - idx, self.n_res), order='F'
+                        dE[:, var], (idx_new - idx, self.n_residues), order='F'
                     )
 
                 idx = idx_new
@@ -415,7 +415,7 @@ class Simulation(Parameters):
         memory_size_to_split = memory_to_gc_idx.size // self.n_gc
         memory_to_gc_idxs = np.array_split(memory_to_gc_idx[:memory_size_to_split], self.n_gc)
         for gc_idx in range(self.n_gc):
-            memory_to_gc_bcells = self.memory_gc_bcells.get_bcells_from_idx(
+            memory_to_gc_bcells = self.memory_gc_bcells.get_bcells_from_indices(
                 memory_to_gc_idxs[gc_idx]
             )
             #set memory re-entry tag to 1
@@ -425,7 +425,7 @@ class Simulation(Parameters):
             #self.gc_bcells[gc_idx].add_bcells(memory_to_gc_bcells)
 
         # Remove the memory GC cells from the memory compartment (since now they are in naive)
-        self.memory_gc_bcells.filter_all_arrays(memory_to_gc_idx)
+        self.memory_gc_bcells.exclude_bcell_fields(memory_to_gc_idx)
         if self.memory_gc_bcells.lineage.size == 0:
             self.memory_gc_bcells.reset_bcell_fields()
         #memory_to_egc_bcells = self.memory_gc_bcells.get_bcells_from_idx(

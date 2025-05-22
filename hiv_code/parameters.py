@@ -80,12 +80,12 @@ class Parameters():
     The initial number of B cells.
     """
     
-    n_res: int = 80
+    n_residues: int = 80
     """
     The number of residues.
     """
     
-    n_var: int = 1
+    n_variants: int = 1
     """
     The number of variants. Just 1 for HIV in the epitope representation
     """
@@ -230,7 +230,7 @@ class Parameters():
     The maximum affinity.
     """
 
-    affinities_history: tuple[float] = (6., 7., 8., 9.)
+    history_affinity_thresholds: tuple[float] = (6., 7., 8., 9.)
     """
     Affinity thresholds for counting cells for the simulation history.
     """
@@ -254,7 +254,7 @@ class Parameters():
     Fractions of naive cells targeting each epitope.
     """
 
-    K: float = 0.5
+    stringency: float = 0.5
     """
     Stringency of Ag capture.
     """
@@ -443,7 +443,7 @@ class Parameters():
 
 
     @property
-    def sigma(self) -> np.ndarray:
+    def epitope_covariance_matrix(self) -> np.ndarray:
         """Get sigma: covariance matrix per epitope. 
         
         For HIV project, we don't consider variants but instead
@@ -451,7 +451,7 @@ class Parameters():
         in affinity changes between epitopes.
 
         XXX move to attributes"""
-        sigma = np.zeros((self.n_ep, self.n_var, self.n_var))
+        sigma = np.zeros((self.n_ep, self.n_variants, self.n_variants))
         for ep_idx in range(self.n_ep):
             sigma[ep_idx] = np.array([
                 [1.]

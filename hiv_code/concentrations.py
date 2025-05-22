@@ -187,14 +187,14 @@ class Concentrations(Parameters):
             ka_PC: np.ndarray (shape=(n_var, n_bcell_types, n_ep))
         """
         ig_PC = np.zeros((self.n_bcell_types, self.n_ep))
-        ka_PC = np.array([ig_PC for _ in range(self.n_var)]) # (n_var, n_bcell_types, n_ep)
+        ka_PC = np.array([ig_PC for _ in range(self.n_variants)]) # (n_var, n_bcell_types, n_ep)
         #contains all B cell affinities in a given population 
         # so affinity[i] has shape (nbcells,)
-        affinity = np.empty(shape=(self.n_var, self.n_bcell_types), dtype=object) # (n_var, n_bcell_types)
+        affinity = np.empty(shape=(self.n_variants, self.n_bcell_types), dtype=object) # (n_var, n_bcell_types)
         # target[i] has shape (nbcells,)
         target = np.empty(self.n_bcell_types, dtype=object)
 
-        for var in range(self.n_var):
+        for var in range(self.n_variants):
 
             bcell_list = [plasma_bcells_gc, plasma_bcells_egc]
             assert len(bcell_list) == self.n_bcell_types
@@ -217,7 +217,7 @@ class Concentrations(Parameters):
                     ig_PC[bcell_idx, ep] = (
                         (target[bcell_idx] == ep + 1).sum() * self.r_igg)
 
-                    for var in range(self.n_var):
+                    for var in range(self.n_variants):
                         target_idx = target[bcell_idx] == ep + 1
                         log10_aff = (
                             affinity[var, bcell_idx][target_idx] + 
