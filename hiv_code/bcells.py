@@ -62,7 +62,7 @@ memory_bcells, plasma_bcells, nonexported_bcells = bcell_population.differentiat
 )
 
 # Retrieve B cells with high affinity for further analysis
-high_affinity_bcells = bcell_population.count_high_affinity_cells()
+high_affinity_bcells = bcell_population.get_num_above_aff()
 
 ---
 
@@ -86,7 +86,7 @@ allow researchers to track B cell **evolution at different stages** of GC select
 | `get_seeding_bcells()`  | Identifies naive B cells eligible for GC entry. |
 | `get_daughter_bcells()` | Selects B cells that undergo division and mutation. |
 | `differentiate_bcells()` | Classifies B cells into **memory, plasma, or non-exported**. |
-| `count_high_affinity_cells()`   | Counts B cells exceeding affinity thresholds. |
+| `get_num_above_aff()`   | Counts B cells exceeding affinity thresholds. |
 
 ---
 
@@ -314,7 +314,7 @@ class Bcells(Parameters):
             raise RuntimeError(f"Error excluding indices {indices}: {e}")
 
 
-    def merge_bcells(self, other: Self) -> None:
+    def add_bcells(self, other: Self) -> None:
         """
         Merge the B cell data from `other` instance into self.
 
@@ -330,24 +330,22 @@ class Bcells(Parameters):
             ValueError: If a field's data type is unsupported for merging.
             RuntimeError: If an unexpected error occurs during the merge.
         """
-        try:
-            for key in self.bcell_field_keys:
-                current_field = getattr(self, key)
-                other_field = getattr(other, key)
+        for key in self.bcell_field_keys:
+            current_field = getattr(self, key)
+            other_field = getattr(other, key)
 
-                if isinstance(current_field, csr_matrix):
-                    assert len(current_field.shape) == 2
-                    # Merge sparse matrices via vertical stacking
-                    new_field = scipy.sparse.vstack([current_field, other_field])
-                elif isinstance(current_field, np.ndarray):
-                    # Merge dense arrays along the first axis
-                    new_field = np.concatenate([current_field, other_field], axis=0)
-                else:
-                    raise ValueError(f"Unsupported field type for {key}: {type(current_field)}")
+            if isinstance(current_field, csr_matrix):
+                assert len(current_field.shape) == 2
+                # Merge sparse matrices via vertical stacking
+                new_field = scipy.sparse.vstack([current_field, other_field])
+            elif isinstance(current_field, np.ndarray):
+                # Merge dense arrays along the first axis
+                new_field = np.concatenate([current_field, other_field], axis=0)
+            else:
+                raise ValueError(f"Unsupported field type for {key}: {type(current_field)}")
 
-                setattr(self, key, new_field)
-        except Exception as err:
-            raise RuntimeError(f"Error merging BCells: {err}")
+            setattr(self, key, new_field)
+
     
 
     # ------------------------------------
@@ -367,11 +365,8 @@ class Bcells(Parameters):
         Raises:
             RuntimeError: If an error occurs while updating the activation times.
         """
-        try:
-            offset = 0.5 * self.time_step if shift else 0
-            self.activated_time.fill(current_time + offset)
-        except Exception as e:
-            raise RuntimeError(f"Error setting activation time at {current_time}: {e}")
+        offset = 0.5 * self.time_step if shift else 0
+        self.activated_time.fill(current_time + offset)
     
     def set_memory_reentry_tag(self) -> None:
         """ Tag all bcells in this population as memory cells that are re-entering naive pool. """
@@ -408,18 +403,15 @@ class Bcells(Parameters):
         Raises:
             RuntimeError: If an error occurs during sampling or transformation.
         """
-        try:
-            mu = np.zeros(self.n_variants)
-            sigma = self.mutation_pdf[1] ** 2 * self.epitope_covariance_matrix[ep]
-            num_samples = (idx_new - idx) * self.n_residues
+        mu = np.zeros(self.n_variants)
+        sigma = self.mutation_pdf[1] ** 2 * self.epitope_covariance_matrix[ep]
+        num_samples = (idx_new - idx) * self.n_residues
 
-            # Sample from the underlying normal distribution and add the specified offset.
-            X = self.mutation_pdf[0] + np.random.multivariate_normal(mu, sigma, num_samples)
-            # Transform the samples to log-scale affinity changes.
-            dE = -np.log10(np.exp(1)) * (np.exp(X) - self.mutation_pdf[2])
-            return dE
-        except Exception as e:
-            raise RuntimeError(f"Error calculating affinity changes: {e}")
+        # Sample from the underlying normal distribution and add the specified offset.
+        X = self.mutation_pdf[0] + np.random.multivariate_normal(mu, sigma, num_samples)
+        # Transform the samples to log-scale affinity changes.
+        dE = -np.log10(np.exp(1)) * (np.exp(X) - self.mutation_pdf[2])
+        return dE
 
     
     # ------------------------------------
@@ -457,36 +449,33 @@ class Bcells(Parameters):
             ValueError: If conc_array does not have the expected shape.
             RuntimeError: For any unexpected error during the computation.
         """
-        try:
-            # Validate the shape: expect (n_cells, n_ag)
-            if conc_array.ndim != 2 or conc_array.shape[1] != self.n_ag:
-                raise ValueError(f"Invalid conc_array shape {conc_array.shape}; expected (n_cells, n_ag).")
+        # Validate the shape: expect (n_cells, n_ag)
+        if conc_array.ndim != 2 or conc_array.shape[1] != self.n_ag:
+            raise ValueError(f"Invalid conc_array shape {conc_array.shape}; expected (n_cells, n_ag).")
 
-            # Compute concentration term by normalizing with Ag_norm (C0)
-            conc_term = conc_array / self.C0
+        # Compute concentration term by normalizing with Ag_norm (C0)
+        conc_term = conc_array / self.C0
 
-            # Compute affinity term:
-            # - Clip log10 affinities (for the targeted variants) to a maximum (E_sat)
-            # - Convert these values to linear scale using 10^(affinity - E0)
-            energies = np.clip(self.variant_affinities[:, 0], None, self.E_sat)
-            aff_term = np.power(10, energies - self.E0)
+        # Compute affinity term:
+        # - Clip log10 affinities (for the targeted variants) to a maximum (E_sat)
+        # - Convert these values to linear scale using 10^(affinity - E0)
+        energies = np.clip(self.variant_affinities[:, 0], None, self.E_sat)
+        aff_term = np.power(10, energies - self.E0)
 
-            # Combine concentration and affinity terms with capture stringency exponent
-            signal = np.power(conc_term * aff_term, self.stringency)
+        # Combine concentration and affinity terms with capture stringency exponent
+        signal = np.power(conc_term * aff_term, self.stringency)
 
-            # Adjust signal for alternative antigen capture if enabled (w1 > 0)
-            if self.w1 > 0:
-                signal = ((self.w1 + 1) * signal) / (self.w1 + signal)
+        # Adjust signal for alternative antigen capture if enabled (w1 > 0)
+        if self.w1 > 0:
+            signal = ((self.w1 + 1) * signal) / (self.w1 + signal)
 
-            # Sum the signal over all antigen variants to obtain a single value per cell
-            activation_signal = signal.sum(axis=1)
+        # Sum the signal over all antigen variants to obtain a single value per cell
+        activation_signal = signal.sum(axis=1)
 
-            # Determine activation status:
-            # For each cell, generate a random number uniformly in [0, 1). If the cell's activation signal
-            # (clipped between 0 and 1) is greater than the random number, the cell is activated.
-            activated_mask = np.random.uniform(size=activation_signal.size) < np.clip(activation_signal, 0, 1)
-        except Exception as e:
-            raise RuntimeError(f"Error computing activation signal: {e}")
+        # Determine activation status:
+        # For each cell, generate a random number uniformly in [0, 1). If the cell's activation signal
+        # (clipped between 0 and 1) is greater than the random number, the cell is activated.
+        activated_mask = np.random.uniform(size=activation_signal.size) < np.clip(activation_signal, 0, 1)
 
         return activation_signal, activated_mask
     
@@ -539,27 +528,24 @@ class Bcells(Parameters):
             >>> print(birth_signals.shape)  # Expected: (4,)
         """
 
-        try:
-            # Validate input shapes
-            if activation_signal.shape != activated_mask.shape:
-                raise ValueError("Shapes of `activation_signal` and `activated_mask` do not match.")
+        # Validate input shapes
+        if activation_signal.shape != activated_mask.shape:
+            raise ValueError("Shapes of `activation_signal` and `activated_mask` do not match.")
 
-            # Calculate fitness for activated cells
-            activated_fitness = activation_signal * activated_mask
+        # Calculate fitness for activated cells
+        activated_fitness = activation_signal * activated_mask
 
-            # Handle edge cases where no cells are activated
-            if activated_fitness.sum() == 0 or activated_mask.sum() == 0:
-                return np.zeros_like(activation_signal)
+        # Handle edge cases where no cells are activated
+        if activated_fitness.sum() == 0 or activated_mask.sum() == 0:
+            return np.zeros_like(activation_signal)
 
-            # Compute average fitness of activated cells
-            avg_fitness = activated_fitness[activated_fitness > 0].mean()
+        # Compute average fitness of activated cells
+        avg_fitness = activated_fitness[activated_fitness > 0].mean()
 
-            # Calculate T-cell help per activated cell
-            tcell_help = (tcell / activated_mask.sum()) / avg_fitness * activated_fitness
-            birth_signal = birth_rate * tcell_help / (1 + tcell_help)
-            return birth_signal
-        except Exception as e:
-            raise RuntimeError(f"Error during birth signal computation: {e}")
+        # Calculate T-cell help per activated cell
+        tcell_help = (tcell / activated_mask.sum()) / avg_fitness * activated_fitness
+        birth_signal = birth_rate * tcell_help / (1 + tcell_help)
+        return birth_signal
 
      # ------------------------------------
     # Seeding & Division
@@ -582,43 +568,30 @@ class Bcells(Parameters):
 
         Returns:
             np.ndarray: Indices of B cells selected for GC seeding (shape: (n_selected_cells,)).
-
-        Raises:
-            ValueError: If antigen_conc does not have the expected shape (n_epitope, n_Ag).
-            RuntimeError: If an error occurs during the selection process.
-
-        Example Usage:
-            >>> conc_matrix = np.random.rand(10, 5)  # 10 epitopes, 5 antigen variants
-            >>> seeding_indices = bcell_population.get_seeding_idx(conc_matrix)
-            >>> print(seeding_indices.shape)  # Expected: (n_selected_cells,)
         """
-        try:
-            # Initialize the concentration array for each B cell
-            conc_array = np.zeros(shape=(self.lineage.size,))
-            for ep in range(self.n_ep):
-                matching_epitope = self.target_epitope == ep
-                conc_array += (
-                    conc[ep] * 
-                    matching_epitope 
-                )
+        # Initialize the concentration array for each B cell
+        conc_array = np.zeros(shape=(self.lineage.size,))
+        for ep in range(self.n_ep):
+            matching_epitope = self.target_epitope == ep
+            conc_array += (
+                conc[ep] * 
+                matching_epitope 
+            )
 
-            # Calculate activation signals and determine activated cells
-            activation_signal, activated = self.get_activation_signal(conc_array)
-            
-            # Determine which B cells will enter the GC (at least one B cell enters)
-            if activated.any(): 
-                # Compute birth signals for activated cells
-                lambda_ = self.get_birth_signal(
-                    activation_signal, activated, tcell, self.gc_entry_birth_rate
-                )
-                # Stochastically select B cells based on birth signals
-                selected = np.random.uniform(size=activated.shape) < lambda_ * self.dt
-                incoming_naive = activated & selected   
-            else:
-                incoming_naive = np.array([])
-        except Exception as e:
-            raise RuntimeError(f"Error determining seeding indices: {e}")
+        # Calculate activation signals and determine activated cells
+        activation_signal, activated = self.get_activation_signal(conc_array)
         
+        # Determine which B cells will enter the GC (at least one B cell enters)
+        if activated.any(): 
+            # Compute birth signals for activated cells
+            lambda_ = self.get_birth_signal(
+                activation_signal, activated, tcell, self.gc_entry_birth_rate
+            )
+            # Stochastically select B cells based on birth signals
+            selected = np.random.uniform(size=activated.shape) < lambda_ * self.dt
+            incoming_naive = activated & selected   
+        else:
+            incoming_naive = np.array([])
         # Return indices of selected B cells
         return np.nonzero(incoming_naive)[0]
         
@@ -660,30 +633,27 @@ class Bcells(Parameters):
             >>> birth_indices = bcell_population.get_birth_idx(conc_matrix, tcell=100)
             >>> print(birth_indices.shape)  # Expected: (n_selected_cells,)
         """
-        try:
-            # Initialize the concentration array for each B cell
-            conc_array = np.zeros(shape=(self.lineage.size,))
-            for ep in range(self.n_ep):
-                #conc[ep] is a float, target_epitope is (nbcells,)
-                conc_array += conc[ep] * (self.target_epitope == ep)
+        # Initialize the concentration array for each B cell
+        conc_array = np.zeros(shape=(self.lineage.size,))
+        for ep in range(self.n_ep):
+            #conc[ep] is a float, target_epitope is (nbcells,)
+            conc_array += conc[ep] * (self.target_epitope == ep)
 
-            # Calculate activation signals and determine activated cells
-            activation_signal, activated = self.get_activation_signal(conc_array)
+        # Calculate activation signals and determine activated cells
+        activation_signal, activated = self.get_activation_signal(conc_array)
 
-            if activated.sum(): # at least one B cell is intrinsically activated
-                # Compute birth signals for activated cells
-                beta = self.get_birth_signal(
-                    activation_signal, activated, tcell, self.birth_rate
-                )
-                # Handle potential NaN values in birth signals
-                beta[np.isnan(beta)] = 0
-                # Stochastically select cells for birth based on probabilities
-                selected = np.random.uniform(size=activated.shape) < beta * self.dt
-                birth_idx = activated & selected   
-            else:
-                birth_idx = np.array([])
-        except Exception as e:
-            raise RuntimeError(f"Error determining birth indices: {e}")
+        if activated.sum(): # at least one B cell is intrinsically activated
+            # Compute birth signals for activated cells
+            beta = self.get_birth_signal(
+                activation_signal, activated, tcell, self.birth_rate
+            )
+            # Handle potential NaN values in birth signals
+            beta[np.isnan(beta)] = 0
+            # Stochastically select cells for birth based on probabilities
+            selected = np.random.uniform(size=activated.shape) < beta * self.dt
+            birth_idx = activated & selected   
+        else:
+            birth_idx = np.array([])
 
         # Return indices of selected B cells
         return np.nonzero(birth_idx)[0]
@@ -708,7 +678,7 @@ class Bcells(Parameters):
         return death_idx
     
 
-    def remove_dead_cells(self) -> None:
+    def kill(self) -> None:
         """
         Remove B cells slated for apoptosis during the current time step.
 
@@ -721,16 +691,13 @@ class Bcells(Parameters):
         Raises:
             RuntimeError: If an error occurs during the removal process.
         """
-        try:
-            # Step 1: Identify cells for death.
-            death_idx = self.get_death_indices()
-            # Step 2: Exclude the dead cells from all field arrays.
-            self.exclude_bcell_fields(death_idx)
-            # Step 3: If the population is empty, reset the fields.
-            if self.lineage.size == 0:
-                self.reset_bcell_fields()
-        except Exception as e:
-            raise RuntimeError(f"Error removing dead cells: {e}")
+        # Step 1: Identify cells for death.
+        death_idx = self.get_death_indices()
+        # Step 2: Exclude the dead cells from all field arrays.
+        self.exclude_bcell_fields(death_idx)
+        # Step 3: If the population is empty, reset the fields.
+        if self.lineage.size == 0:
+            self.reset_bcell_fields()
 
     # ------------------------------------
     # Subsetting & Merging
@@ -754,26 +721,16 @@ class Bcells(Parameters):
         Returns:
             Self: A new BCells instance containing only the selected cells.
 
-        Raises:
-            RuntimeError: If an error occurs during the subsetting process.
-
-        Example:
-            >>> idx = np.array([0, 2, 4, 6])
-            >>> subset_cells = bcell_population.select_Bcells(idx)
-            >>> print(len(subset_cells.lineage))  # Should match len(idx)
         """
-        try:
-            new_bcells = copy.deepcopy(self)
+        new_bcells = copy.deepcopy(self)
 
-            # Avoid error in replace_all_arrays
-            if new_bcells.lineage.size == 0:
-                return new_bcells
-            
-            new_bcells.subset_bcell_fields(indices)
+        # Avoid error in replace_all_arrays
+        if new_bcells.lineage.size == 0:
             return new_bcells
         
-        except Exception as e:
-            raise RuntimeError(f"Error selecting cells with indices {indices}: {e}")
+        new_bcells.subset_bcell_fields(indices)
+        return new_bcells
+        
     
     
     def get_seeding_bcells(self, antigen_conc: np.ndarray, tcell: float) -> Self:
@@ -797,9 +754,6 @@ class Bcells(Parameters):
 
         Returns:
             Self: A new BCells instance with only GC-seeding cells.
-
-        Raises:
-            RuntimeError: If an error occurs during the selection process.
         """
         seeding_idx = self.get_seeding_indices(antigen_conc, tcell)
         return self.get_bcells_from_indices(seeding_idx)
@@ -829,18 +783,12 @@ class Bcells(Parameters):
             Self: A new BCells instance containing only the daughter (dividing) B cells. If no cells are 
                 selected, an empty instance is returned.
 
-        Raises:
-            RuntimeError: If an error occurs during the selection process.
         """
-        try:
-            # Identify indices of daughter B cells
-            dividing_indices = self.get_birth_indices(antigen_conc, tcell)
+        # Identify indices of daughter B cells
+        dividing_indices = self.get_birth_indices(antigen_conc, tcell)
 
-            # Create and return a copy containing only daughter B cells
-            return self.get_bcells_from_indices(dividing_indices)
-
-        except Exception as e:
-            raise RuntimeError(f"Error retrieving daughter B cells: {e}")
+        # Create and return a copy containing only daughter B cells
+        return self.get_bcells_from_indices(dividing_indices)
 
     # ------------------------------------
     # Mutation
@@ -848,7 +796,7 @@ class Bcells(Parameters):
     def mutate_bcells_by_indices(
         self, 
         indices: np.ndarray, 
-        dE_matrix: np.ndarray
+        precalculated_dEs: np.ndarray
     ) -> Self:
         """
         Return a new BCells instance with mutations applied to the cells at the specified indices.
@@ -863,7 +811,7 @@ class Bcells(Parameters):
 
         Args:
             indices (np.ndarray): Indices of B cells to mutate.
-            dE_matrix (np.ndarray): Precomputed affinity changes (ΔE) for mutations, with shape 
+            precalculated_dEs (np.ndarray): Precomputed affinity changes (ΔE) for mutations, with shape 
                 (n_gc, n_cell, n_residues, n_variants).
 
         Returns:
@@ -872,74 +820,70 @@ class Bcells(Parameters):
         Raises:
             ValueError: If the mutation state array contains non-binary values or if any affinity 
                         exceeds the maximum allowed value.
-            RuntimeError: If an error occurs during the mutation process.
         """
-        try:
-            # Create a deep copy of the selected cells to avoid modifying the original instance.
-            mutated_bcells = self.get_bcells_from_indices(indices)
+        # Create a deep copy of the selected cells to avoid modifying the original instance.
+        mutated_bcells = self.get_bcells_from_indices(indices)
 
-            # Randomly choose a residue for each selected cell.
-            chosen_residues = np.random.randint(self.n_residues, size=indices.size)
+        # Randomly choose a residue for each selected cell.
+        chosen_residues = np.random.randint(self.n_residues, size=indices.size)
 
-            # Retrieve the mutation states for the chosen residues.
-            if indices.size == 0:
-                original_mutation_states = np.squeeze(
-                    mutated_bcells.mutation_state_array[
-                        np.arange(indices.size), chosen_residues
-                    ].toarray()
-                )
-            else:
-                original_mutation_states = np.array(
-                    mutated_bcells.mutation_state_array[
-                        np.arange(indices.size), chosen_residues
-                    ]
-                ).squeeze()
-
-            original_mutation_states = np.atleast_1d(original_mutation_states)
-
-            # Determine which cells are currently unmutated (state 0) vs. mutated (state 1).
-            nonmutated_cells = np.where(original_mutation_states == 0)[0]
-            already_mutated_cells = np.where(original_mutation_states == 1)[0]
-
-            # Sanity check: Ensure all selected cells have a binary mutation state.
-            if nonmutated_cells.size + already_mutated_cells.size != indices.size:
-                raise ValueError("Mutation state array contains non-binary values.")
-
-            # Get residue indices for non-mutated and already mutated cells.
-            residues_nonmutated = chosen_residues[nonmutated_cells]
-            residues_mutated = chosen_residues[already_mutated_cells]
-
-            # Get lineage and GC lineage information for mutation adjustment.
-            lineage_nonmutated = mutated_bcells.lineage[nonmutated_cells]
-            lineage_mutated = mutated_bcells.lineage[already_mutated_cells]
-
-            gc_lineage_nonmutated = mutated_bcells.gc_lineage[nonmutated_cells]
-            gc_lineage_mutated = mutated_bcells.gc_lineage[already_mutated_cells]
-            
-            # Flip mutation state: unmutated cells become mutated and vice versa.
-            mutated_bcells.mutation_state_array[nonmutated_cells, residues_nonmutated] = 1
-            mutated_bcells.mutation_state_array[already_mutated_cells, residues_mutated] = 0
-
-            # Adjust affinities:
-                # - Increase for newly mutated cells.
-                # - Decrease for cells that are reverting.
-            mutated_bcells.variant_affinities[nonmutated_cells] += (
-                dE_matrix[
-                    gc_lineage_nonmutated, 
-                    lineage_nonmutated, 
-                    residues_nonmutated
+        # Retrieve the mutation states for the chosen residues.
+        if indices.size == 0:
+            original_mutation_states = np.squeeze(
+                mutated_bcells.mutation_state_array[
+                    np.arange(indices.size), chosen_residues
+                ].toarray()
+            )
+        else:
+            original_mutation_states = np.array(
+                mutated_bcells.mutation_state_array[
+                    np.arange(indices.size), chosen_residues
                 ]
-            )
+            ).squeeze()
 
-            mutated_bcells.variant_affinities[already_mutated_cells] -= (
-                dE_matrix[gc_lineage_mutated, lineage_mutated, residues_mutated]
-            )
+        original_mutation_states = np.atleast_1d(original_mutation_states)
 
-            # Ensure that no affinity exceeds the maximum allowable value.
-            if np.any(mutated_bcells.variant_affinities > self.max_affinity):
-                raise ValueError('Affinity impossibly high.')
-        except Exception as e:
-            raise RuntimeError(f"Error during mutation process: {e}") 
+        # Determine which cells are currently unmutated (state 0) vs. mutated (state 1).
+        nonmutated_cells = np.where(original_mutation_states == 0)[0]
+        already_mutated_cells = np.where(original_mutation_states == 1)[0]
+
+        # Sanity check: Ensure all selected cells have a binary mutation state.
+        if nonmutated_cells.size + already_mutated_cells.size != indices.size:
+            raise ValueError("Mutation state array contains non-binary values.")
+
+        # Get residue indices for non-mutated and already mutated cells.
+        residues_nonmutated = chosen_residues[nonmutated_cells]
+        residues_mutated = chosen_residues[already_mutated_cells]
+
+        # Get lineage and GC lineage information for mutation adjustment.
+        lineage_nonmutated = mutated_bcells.lineage[nonmutated_cells]
+        lineage_mutated = mutated_bcells.lineage[already_mutated_cells]
+
+        gc_lineage_nonmutated = mutated_bcells.gc_lineage[nonmutated_cells]
+        gc_lineage_mutated = mutated_bcells.gc_lineage[already_mutated_cells]
+        
+        # Flip mutation state: unmutated cells become mutated and vice versa.
+        mutated_bcells.mutation_state_array[nonmutated_cells, residues_nonmutated] = 1
+        mutated_bcells.mutation_state_array[already_mutated_cells, residues_mutated] = 0
+
+        # Adjust affinities:
+            # - Increase for newly mutated cells.
+            # - Decrease for cells that are reverting.
+        mutated_bcells.variant_affinities[nonmutated_cells] += (
+            precalculated_dEs[
+                gc_lineage_nonmutated, 
+                lineage_nonmutated, 
+                residues_nonmutated
+            ]
+        )
+
+        mutated_bcells.variant_affinities[already_mutated_cells] -= (
+            precalculated_dEs[gc_lineage_mutated, lineage_mutated, residues_mutated]
+        )
+
+        # Ensure that no affinity exceeds the maximum allowable value.
+        if np.any(mutated_bcells.variant_affinities > self.max_affinity):
+            raise ValueError('Affinity impossibly high.')
 
         return mutated_bcells
 
@@ -948,7 +892,7 @@ class Bcells(Parameters):
         self, 
         export_prob: float, 
         PC_frac: float,
-        dE_matrix: np.ndarray,
+        precalculated_dEs: np.ndarray,
         mutate: bool=True
     ) -> tuple[Self, Self, Self]:
         """
@@ -995,52 +939,49 @@ class Bcells(Parameters):
             ... )
             >>> print(len(memory.lineage), len(plasma.lineage), len(nonexported.lineage))
         """
-        try:
-            # Step 1: Sample exported B cells
-            birth_bcells_idx = np.arange(len(self.lineage))
-            export_idx = utils.get_sample(birth_bcells_idx, p=export_prob)
-            plasma_idx = utils.get_sample(export_idx, p=PC_frac)
-            memory_idx = utils.get_other_idx(export_idx, plasma_idx)
+        # Step 1: Sample exported B cells
+        birth_bcells_idx = np.arange(len(self.lineage))
+        export_idx = utils.get_sample(birth_bcells_idx, p=export_prob)
+        plasma_idx = utils.get_sample(export_idx, p=PC_frac)
+        memory_idx = utils.get_other_idx(export_idx, plasma_idx)
 
-            # Step 2: Sample non-exported B cells
-            nonexport_idx = utils.get_other_idx(birth_bcells_idx, export_idx)
-            death_idx = utils.get_sample(nonexport_idx, p=self.mutation_death_prob)
-            survivors_idx = utils.get_other_idx(nonexport_idx, death_idx)
+        # Step 2: Sample non-exported B cells
+        nonexport_idx = utils.get_other_idx(birth_bcells_idx, export_idx)
+        death_idx = utils.get_sample(nonexport_idx, p=self.mutation_death_prob)
+        survivors_idx = utils.get_other_idx(nonexport_idx, death_idx)
 
-            # Calculate probability for silent mutations
-            silent_prob = min((
-                self.mutation_silent_prob * 
-                len(nonexport_idx) / 
-                (len(survivors_idx) + self.epsilon)
-            ), 1)
-            silent_mutation_idx = utils.get_sample(survivors_idx, p=silent_prob)
-            affinity_change_idx = utils.get_other_idx(survivors_idx, silent_mutation_idx)
+        # Calculate probability for silent mutations
+        silent_prob = min((
+            self.mutation_silent_prob * 
+            len(nonexport_idx) / 
+            (len(survivors_idx) + self.epsilon)
+        ), 1)
+        silent_mutation_idx = utils.get_sample(survivors_idx, p=silent_prob)
+        affinity_change_idx = utils.get_other_idx(survivors_idx, silent_mutation_idx)
 
-            # Step 3: Retrieve B cell populations
-            memory_bcells = self.get_bcells_from_indices(memory_idx)
-            plasma_bcells = self.get_bcells_from_indices(plasma_idx)
-            nonexported_bcells = self.get_bcells_from_indices(silent_mutation_idx)
-            
-            # Step 4: Mutate affinity-changing B cells if applicable
-            if mutate:
-                mutated_bcells = self.mutate_bcells_by_indices(
-                    affinity_change_idx, 
-                    dE_matrix
-                )
-            else:
-                mutated_bcells = self.get_bcells_from_indices(affinity_change_idx)
-            
-            # Combine mutated B cells with the non-exported group
-            nonexported_bcells.add_bcells(mutated_bcells)
-        except Exception as e:
-            raise RuntimeError(f"Error during B cell differentiation: {e}")
+        # Step 3: Retrieve B cell populations
+        memory_bcells = self.get_bcells_from_indices(memory_idx)
+        plasma_bcells = self.get_bcells_from_indices(plasma_idx)
+        nonexported_bcells = self.get_bcells_from_indices(silent_mutation_idx)
+        
+        # Step 4: Mutate affinity-changing B cells if applicable
+        if mutate:
+            mutated_bcells = self.mutate_bcells_by_indices(
+                affinity_change_idx, 
+                precalculated_dEs
+            )
+        else:
+            mutated_bcells = self.get_bcells_from_indices(affinity_change_idx)
+        
+        # Combine mutated B cells with the non-exported group
+        nonexported_bcells.add_bcells(mutated_bcells)
 
         return memory_bcells, plasma_bcells, nonexported_bcells
     
     # ------------------------------------
     # Analysis
     # ------------------------------------
-    def count_high_affinity_cells(self) -> np.ndarray:
+    def get_num_above_aff(self) -> np.ndarray:
         """
         Count B cells with binding affinities exceeding predefined thresholds.
 
@@ -1057,28 +998,21 @@ class Bcells(Parameters):
 
         Raises:
             ValueError: If self.aff_history is not defined or is empty.
-            RuntimeError: If an error occurs during the computation.
 
-        Example Usage:
-            >>> num_high_affinity_bcells = bcell_population.count_high_affinity_cells()
-            >>> print(num_high_affinity_bcells.shape)  # Expected: (n_var, n_ep, n_affinities)
         """
-        try:
-            # Initialize output array: counts[variant, epitope, threshold]
-            counts = np.zeros(
-                (self.n_variants, self.n_ep, len(self.history_affinity_thresholds))
-            )
+        # Initialize output array: counts[variant, epitope, threshold]
+        counts = np.zeros(
+            (self.n_variants, self.n_ep, len(self.history_affinity_thresholds))
+        )
 
-            # Loop over each threshold and each epitope.
-            for threshold_idx, affinity_threshold in enumerate(self.history_affinity_thresholds):
-                for ep in range(self.n_ep):
-                    # Select cells targeting the current epitope.
-                    cell_affinities = self.variant_affinities[self.target_epitope == ep]
-                    # Count, for each variant, the number of cells with affinity above the threshold.
-                    n_cells = (cell_affinities > affinity_threshold).sum(axis=0)
-                    counts[:, ep, threshold_idx] = n_cells
-        except Exception as e:
-            raise RuntimeError(f"Error counting high-affinity cells: {e}")
+        # Loop over each threshold and each epitope.
+        for threshold_idx, affinity_threshold in enumerate(self.history_affinity_thresholds):
+            for ep in range(self.n_ep):
+                # Select cells targeting the current epitope.
+                cell_affinities = self.variant_affinities[self.target_epitope == ep]
+                # Count, for each variant, the number of cells with affinity above the threshold.
+                n_cells = (cell_affinities > affinity_threshold).sum(axis=0)
+                counts[:, ep, threshold_idx] = n_cells
         
         return counts
     

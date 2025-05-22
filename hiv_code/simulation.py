@@ -333,10 +333,10 @@ class Simulation(Parameters):
         seeding_bcells.set_activated_time(self.current_time)
 
         #count number that entered in this time step
-        self.naive_cells_entry[gc_idx].merge_bcells(seeding_bcells)
+        self.naive_cells_entry[gc_idx].add_bcells(seeding_bcells)
 
         # Seed
-        self.gc_bcells[gc_idx].merge_bcells(seeding_bcells)
+        self.gc_bcells[gc_idx].add_bcells(seeding_bcells)
         
         # Birth and differentiation
         daughter_bcells = self.gc_bcells[gc_idx].get_daughter_bcells(
@@ -354,9 +354,9 @@ class Simulation(Parameters):
         memory_bcells.set_activated_time(self.current_time)
         plasma_bcells.set_activated_time(self.current_time)
 
-        self.temporary_memory_bcells.merge_bcells(memory_bcells)
-        self.plasma_gc_bcells.merge_bcells(plasma_bcells)
-        self.gc_bcells[gc_idx].merge_bcells(nonexported_bcells)
+        self.temporary_memory_bcells.add_bcells(memory_bcells)
+        self.plasma_gc_bcells.add_bcells(plasma_bcells)
+        self.gc_bcells[gc_idx].add_bcells(nonexported_bcells)
 
 
     def run_egc(self) -> None:
@@ -376,7 +376,7 @@ class Simulation(Parameters):
         seeding_bcells.set_activated_time(self.current_time)
 
         # Seed
-        self.memory_egc_bcells.merge_bcells(seeding_bcells)
+        self.memory_egc_bcells.add_bcells(seeding_bcells)
 
         daughter_bcells = self.memory_egc_bcells.get_daughter_bcells(
             self.ag_eff_conc, self.n_tfh_egc #Leerang had self.nmax * self.n_gc
@@ -393,8 +393,8 @@ class Simulation(Parameters):
         memory_bcells.set_activated_time(self.current_time)
         plasma_bcells.set_activated_time(self.current_time)
 
-        self.plasma_egc_bcells.merge_bcells(plasma_bcells)
-        self.memory_egc_bcells.merge_bcells(memory_bcells)
+        self.plasma_egc_bcells.add_bcells(plasma_bcells)
+        self.memory_egc_bcells.add_bcells(memory_bcells)
 
     def split_memory_bcells(self) -> None:
         """Split memory GC cells into cells that can re-enter GCs
@@ -421,7 +421,7 @@ class Simulation(Parameters):
             #set memory re-entry tag to 1
             memory_to_gc_bcells.set_memory_reentry_tag()
             #Add some memory cells to the naive pool to compete for seeding GCs
-            self.naive_bcells[gc_idx].merge_bcells(memory_to_gc_bcells)
+            self.naive_bcells[gc_idx].add_bcells(memory_to_gc_bcells)
             #self.gc_bcells[gc_idx].add_bcells(memory_to_gc_bcells)
 
         # Remove the memory GC cells from the memory compartment (since now they are in naive)
@@ -481,7 +481,7 @@ class Simulation(Parameters):
                 Updated history dictionary.
             """
             
-            num_above_aff = bcells.count_high_affinity_cells()
+            num_above_aff = bcells.get_num_above_aff()
             num_in_aff = bcells.get_num_in_aff_bins()
             num_by_lineage = np.histogram(
                 bcells.lineage, 
@@ -553,18 +553,18 @@ class Simulation(Parameters):
         self.temporary_memory_bcells = copy.deepcopy(self.dummy_bcells)
         for gc_idx in range(self.n_gc):
             self.run_gc(gc_idx)
-        self.memory_gc_bcells.merge_bcells(self.temporary_memory_bcells)
+        self.memory_gc_bcells.add_bcells(self.temporary_memory_bcells)
         self.split_memory_bcells()
         self.run_egc()
 
         # Kill bcells
         self.set_death_rates()
         for gc_idx in range(self.n_gc):
-            self.gc_bcells[gc_idx].remove_dead_cells()
-        self.plasma_gc_bcells.remove_dead_cells()
-        self.plasma_egc_bcells.remove_dead_cells()
-        self.memory_gc_bcells.remove_dead_cells()
-        self.memory_egc_bcells.remove_dead_cells()
+            self.gc_bcells[gc_idx].kill()
+        self.plasma_gc_bcells.kill()
+        self.plasma_egc_bcells.kill()
+        self.memory_gc_bcells.kill()
+        self.memory_egc_bcells.kill()
 
         # Update concentrations
         self.concentrations.update_concentrations(
