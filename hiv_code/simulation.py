@@ -412,17 +412,21 @@ class Simulation(Parameters):
         #)
 
         # Add selected memory cells to naive pool for each GC
-        memory_size_to_split = memory_to_gc_idx.size // self.n_gc
-        memory_to_gc_idxs = np.array_split(memory_to_gc_idx[:memory_size_to_split], self.n_gc)
-        for gc_idx in range(self.n_gc):
-            memory_to_gc_bcells = self.memory_gc_bcells.get_bcells_from_indices(
-                memory_to_gc_idxs[gc_idx]
-            )
-            #set memory re-entry tag to 1
-            memory_to_gc_bcells.set_memory_reentry_tag()
-            #Add some memory cells to the naive pool to compete for seeding GCs
-            self.naive_bcells[gc_idx].add_bcells(memory_to_gc_bcells)
-            #self.gc_bcells[gc_idx].add_bcells(memory_to_gc_bcells)
+        # memory_size_to_split = memory_to_gc_idx.size // self.n_gc      # Not needed, array_split distributes mem to n_gcs
+        
+        if memory_to_gc_idx.size > 0: 
+            per_gc_indices = np.array_split(memory_to_gc_idx, self.n_gc)
+            
+            for gc_idx, indices_for_this_gc in enumerate(per_gc_indices):
+                if indices_for_this_gc.size > 0:
+                    memory_to_gc_bcells = self.memory_gc_bcells.get_bcells_from_indices(
+                        indices_for_this_gc
+                    )
+                    #set memory re-entry tag to 1
+                    memory_to_gc_bcells.set_memory_reentry_tag()
+                    #Add some memory cells to the naive pool to compete for seeding GCs
+                    self.naive_bcells[gc_idx].add_bcells(memory_to_gc_bcells)
+                    #self.gc_bcells[gc_idx].add_bcells(memory_to_gc_bcells)
 
         # Remove the memory GC cells from the memory compartment (since now they are in naive)
         self.memory_gc_bcells.exclude_bcell_fields(memory_to_gc_idx)
