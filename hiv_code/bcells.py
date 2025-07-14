@@ -1,145 +1,36 @@
-"""
-### Germinal Center (GC) B Cells Module
-=======================================
+r"""
+Bcells class
+=============
 
 This module defines the `Bcells` class, a core component of the **germinal center (GC) 
-simulation framework**. It models B cell **population dynamics, mutation, selection, 
-activation, differentiation, and affinity maturation** in response to antigenic selection.
+simulation framework**. It integrates with other modules 
+such as `utils` and `parameters` to model B cell population dynamics, including
+mutation, selection, activation, differentiation, and affinity maturation.
+
+The `Bcells` class extends `Parameters` to represent a particular B cell population 
+(i.e. naive, GC, GC-derived memory, EGC-derived memory, GC-derived plasma, or 
+EGC-derived plasma cells). Each `Bcells` object contains **B cell field arrays** 
+of length number of cells in the population, specifying for each cell the
+mutation state, target epitope, precursor lineage, GC of origin, time of activation,
+and affinity to antigenic variants.
 
 ---
 
-### **Overview**
-The `Bcells` class extends `Parameters` to manage **B cell field arrays** and track 
-evolutionary changes during the germinal center reaction. It integrates with other modules 
-such as `utils` and `parameters` to provide a **realistic and flexible representation of 
-B cell affinity maturation**.
-
----
-
-### **Key Features**
-- **B Cell Population Management:** 
-  - Tracks birth, death, and differentiation processes.
-- **Affinity Mutation & Selection:** 
-  - Models silent mutations, affinity-affecting mutations, and antigen selection pressure.
-- **Germinal Center Seeding & Expansion:** 
-  - Determines which naive B cells enter GCs.
-- **T-Cell Help Integration:** 
-  - Simulates interactions between B cells and T follicular helper (Tfh) cells.
-- **Efficient Memory Handling:** 
-  - Uses sparse matrices (`csr_matrix`) to store mutation states and optimize computation.
-- **Probability-Based Differentiation:** 
-  - Stochastically classifies B cells into **memory, plasma, or non-exported populations**.
-- **Tracking and Filtering:** 
-  - Provides utilities for selecting and modifying subsets of B cells.
-
----
-
-### **Usage**
-To instantiate a `Bcells` object, specify an initial population size or load parameters from a file. 
-The class provides multiple methods to manipulate and evolve B cell populations dynamically.
-
----
-
-#### **Example Usage**
-```python
-from bcells import Bcells
-
-# Initialize B cell population with default parameters
-bcell_population = Bcells(initial_number=1000)
-
-# Reset B cell fields to their initial states
-bcell_population.reset_bcell_fields()
-
-# Add new B cells from another instance
-additional_bcells = Bcells(initial_number=500)
-bcell_population.add_bcells(additional_bcells)
-
-# Differentiate B cells into memory, plasma, and non-exported cells
-memory_bcells, plasma_bcells, nonexported_bcells = bcell_population.differentiate_bcells(
-    output_prob=0.3,
-    output_pc_fraction=0.5,
-    precalculated_dEs=precomputed_affinity_changes
-)
-
-# Retrieve B cells with high affinity for further analysis
-high_affinity_bcells = bcell_population.get_num_above_aff()
-
----
-
-### **Integration with Germinal Center Simulation**
-The `Bcells` class is **designed to integrate seamlessly** with the **germinal center 
-simulation pipeline**. It interacts with:
-- **Antigen modeling**: Determines how B cells bind and respond to antigenic stimuli.
-- **Affinity maturation processes**: Simulates evolutionary changes in B cell populations.
-- **Immune response simulations**: Tracks memory and plasma cell differentiation over time.
-
-**Methods like** `get_seeding_bcells()`, `get_daughter_bcells()`, and `differentiate_bcells()` 
-allow researchers to track B cell **evolution at different stages** of GC selection.
-
----
-
-### **Key Components**
-| **Component**           | **Description** |
-|-------------------------|----------------|
-| `reset_bcell_fields()`  | Initializes or resets all B cell field arrays. |
-| `get_bcells_from_idx()` | Extracts a subset of B cells based on indices. |
-| `get_seeding_bcells()`  | Identifies naive B cells eligible for GC entry. |
-| `get_daughter_bcells()` | Selects B cells that undergo division and mutation. |
-| `differentiate_bcells()` | Classifies B cells into **memory, plasma, or non-exported**. |
-| `get_num_above_aff()`   | Counts B cells exceeding affinity thresholds. |
-
----
-
-### **Expected Data Structures**
+### **Core Attributes**
 The `Bcells` class maintains **NumPy arrays and sparse matrices** to store B cell properties.
 
 | **Attribute**            | **Type**                 | **Shape** | **Description** |
 |--------------------------|-------------------------|-----------|----------------|
-| `mutation_state_array`   | `csr_matrix (sparse)`   | `(n_cells, n_residues)` | Tracks mutation states (0 = unmutated, 1 = mutated). |
-| `gc_lineage`             | `np.ndarray`            | `(n_cells,)` | Germinal center lineage identifier for each B cell. |
-| `lineage`                | `np.ndarray`            | `(n_cells,)` | Unique lineage identifier for each B cell. |
-| `target_epitope`         | `np.ndarray`            | `(n_cells,)` | Epitope each B cell targets. |
-| `variant_affinities`     | `np.ndarray`            | `(n_cells, n_variants)` | Log-transformed binding affinities. |
+| `mutation_state_array`   | `csr_matrix (sparse)`   | `(n_cells, n_residues)` | Mutation states of each residue of each B cell receptor (0 = unmutated, 1 = mutated). |
+| `gc_lineage`             | `np.ndarray`            | `(n_cells,)` | Index of GC to which each B cell is assigned (*0, ..., `n_gc`*) |
+| `lineage`                | `np.ndarray`            | `(n_cells,)` | Precursor lineage identifier for each B cell (*0, ..., `n_naive_precursors`*)|
+| `target_epitope`         | `np.ndarray`            | `(n_cells,)` | Epitope each B cell targets (*0, ..., n_ep*). |
+| `variant_affinities`     | `np.ndarray`            | `(n_cells, n_variants)` | Binding affinities (:math:`-log_{10}(K_d)`)|
 | `activated_time`         | `np.ndarray`            | `(n_cells,)` | Last activation time of each B cell. |
 
 ---
-
-### **Mathematical Model**
-1. **Activation Probability:** 
-Activation Signal = (Antigen Concentration * Affinity) ^ Scaling Factor
-- Higher **antigen concentration** and **affinity** increase activation probability.
-
-2. **Birth Probability:**
-Birth Probability = (Activation Strength * T-cell Help) / (1 + Activation Strength * T-cell Help)
-- Higher **T-cell help** results in increased **B cell expansion**.
-
-3. **Affinity Maturation Model:**
-New Affinity = Old Affinity + Mutation Effect (dE)
-- B cells **undergo mutations**, increasing or decreasing affinity.
-
-4. **Differentiation Probabilities:**
-P(Plasma) = Output Probability * Plasma Fraction P(Memory) 
-= Output Probability * (1 - Plasma Fraction) P(Non-exported) = 1 - Output Probability
-
-### **Error Handling**
-- **Shape Mismatches**: Ensures array dimensions remain **consistent** during B cell processing.
-- **Negative Affinity Values**: Checks that **mutations do not exceed limits**.
-- **Sparse Matrix Efficiency**: Uses **`csr_matrix`** for efficient mutation tracking.
-
----
-
-### **Dependencies**
-Ensure the following Python packages are installed:
-```bash
-pip install numpy scipy
-
----
-
 ### Notes:
 Sparse matrices (csr_matrix) are used to optimize memory usage for large populations.
-Stochastic processes (e.g., differentiation, mutation, selection) introduce variability, making results 
-probabilistic rather than deterministic. The module is intended for use in large-scale immunological modeling 
-and computational immunology research.
 
 """
 
@@ -156,60 +47,54 @@ from .parameters import Parameters
 
 
 class Bcells(Parameters):
-    """
-    Models B cell population dynamics for a GC simulation.
+    """Class defining a B-cell population.
 
-    Inherits simulation parameters from `Parameters` and extends functionality by maintaining 
-    B cell-specific fields and methods.
-
-    Core Attributes (inherited from Parameters):
-      - B cell birth and death rates.
-      - Initial B cell count (init_Bcells).
-      - Biological parameters such as n_residues, n_variants, n_epitope, etc.
-
-    Field Arrays:
-      - mut_state: Sparse matrix (csr_matrix) tracking mutation states (0: unmutated, 1: mutated).
-      - gc_lineage: Array indicating GC of origin for each B cell.
-      - lineage: Array tracking a unique lineage ID per B cell.
-      - target_epitope: Array specifying the epitope targeted by each B cell.
-      - variant_affinities: Matrix (log10 scale) of B cell binding affinities to antigen variants.
-      - activated_time: Array recording the last activation time for each B cell.
-
-    **Example Usage:**
-        >>> bcell_population = Bcells(initial_number=1000)
-        >>> print(bcell_population.mutation_state_array.shape)  # Expected: (1000, n_residues)
-        >>> new_population = bcell_population.get_daughter_bcells(conc_matrix, tcell=100)
-        >>> print(len(new_population.lineage))  # Number of newly divided B cells
+    Attributes:
+        mutation_state_array (csr_matrix): Binary matrix of size
+            *(n_cells, n_residues)*; 0 = germline, 1 = mutated.
+        gc_lineage (np.ndarray[int] of shape (n_cells,)): GC identifier per cell.
+        lineage (np.ndarray[int] of shape (n_cells,)): Unique lineage index per cell.
+        target_epitope (np.ndarray[int] of shape (n_cells,)): Epitope targeted by each cell.
+        memory_reentry_tag (np.ndarray[int] of shape (n_cells,)): 1 if a memory cell re-entered the
+            naïve pool, else 0.
+        variant_affinities (np.ndarray[float] of shape shape (n_cells, n_variants)): Binding affinity (:math:`-\log_{10} K_d`) to each
+            variant.
+        activated_time (np.ndarray[float] of shape (n_cells,)): Time each cell 
+            was activated (i.e. seeded if GC B cell or differentiated if 
+            plasma/memory B cell).
     """
 
     def __init__(
         self, 
         updated_params_file: str | None=None, 
-        initial_number: str | None=None
+        initial_number: int | None=None
     ):
         """
-        Initialize a BCells instance.
-
-        Process:
-          1. Update parameters from a JSON file if provided.
-          2. Set core attributes: birth_rate from Bcell_birth, death_rate (to be set later), 
-             and initial count (init_count or default init_Bcells).
-          3. Initialize all B cell fields via reset_bcell_fields().
-          4. Define list of field names for batch operations.
+        Initialize a Bcells instance.
 
         Args:
-            updated_config (str or None): Path to a JSON config file.
-            init_count (int or None): Initial number of B cells; defaults to init_Bcells.
+            updated_params_file (str): Optional JSON file that overrides the default
+                parameters inherited from :class:`Parameters`.
+            initial_number (int): Initial cohort size.  If *None*, uses
+                ``self.initial_bcell_number`` from the parameter set.
+        
+        Notes:
+        * ``self.birth_rate`` is set directly from the inherited parameter
+          ``bcell_birth_rate``; ``self.death_rate`` is left ``None`` and should
+          be assigned later by the simulation driver via
+          ``Simulation.set_death_rates()``.
+        * All per-cell field arrays are created (or re-created) by
+          :py:meth:`reset_bcell_fields`.
+        * ``self.bcell_field_keys`` lists every attribute that must stay
+          row-aligned; helper utilities iterate over this list when slicing or
+          concatenating populations.
 
-        Example Usage:
-            >>> bcell_population = Bcells(updated_params_file="params.json", initial_number=1000)
-            >>> print(len(bcell_population.lineage))  # Expected: 1000 (or value from file)
         """
         super().__init__()
         self.update_parameters_from_file(updated_params_file)
 
         self.birth_rate = self.bcell_birth_rate
-        self.death_rate = None
+        self.death_rate = None #set in Simulation class
         self.initial_number = (
             initial_number if initial_number else self.initial_bcell_number
         )
@@ -227,43 +112,32 @@ class Bcells(Parameters):
             'variant_affinities',
             'activated_time',
         ]
-
     
     def reset_bcell_fields(self) -> None:
         """
         Initialize or reset all B cell field arrays.
 
         Sets:
-          - mut_state as a sparse matrix of zeros with shape (initial_number, n_residues).
-          - gc_lineage, lineage, and target_epitope as zero-filled arrays.
-          - variant_affinities as a zero matrix of shape (initial_number, n_variants).
-          - activated_time as a zero-filled array.
+          - mutation_state_array as a sparse matrix of zeros with shape 
+            `(initial_number, n_residues)`.
+          - gc_lineage, lineage, and target_epitope, activated_time as zero-filled 
+            arrays of shape `(initial_number,)`.
+          - variant_affinities as a zero matrix of shape 
+            `(initial_number, n_variants)`.
 
-        Raises:
-            ValueError: If `self.initial_number` or `self.n_residues` is uninitialized 
-                        or contains invalid values.
-            RuntimeError: If an unexpected error occurs while initializing field arrays.
-
-        Example Usage:
-            >>> bcell_population.reset_bcell_fields()
-            >>> print(bcell_population.mutation_state_array.shape)  # Expected: (initial_number, n_residues)
         """
-        try:
-            # Initialize mutation state array as a sparse matrix
-            self.mutation_state_array = csr_matrix(np.zeros(
-                (self.initial_number, self.n_residues), dtype=int
-            ))
+        # Initialize mutation state array as a sparse matrix
+        self.mutation_state_array = csr_matrix(np.zeros(
+            (self.initial_number, self.n_residues), dtype=int
+        ))
 
-            # Initialize other B cell field arrays
-            self.gc_lineage = np.zeros(self.initial_number, dtype=int)
-            self.lineage = np.zeros(self.initial_number, dtype=int)    
-            self.target_epitope = np.zeros(self.initial_number, dtype=int)  
-            self.memory_reentry_tag = np.zeros(self.initial_number, dtype=int)                            
-            self.variant_affinities = np.zeros((self.initial_number, self.n_variants))             
-            self.activated_time = np.zeros(self.initial_number)   
-
-        except Exception as e:
-            raise RuntimeError(f"Error resetting B cell fields: {e}") 
+        # Initialize other B cell field arrays
+        self.gc_lineage = np.zeros(self.initial_number, dtype=int)
+        self.lineage = np.zeros(self.initial_number, dtype=int)    
+        self.target_epitope = np.zeros(self.initial_number, dtype=int)  
+        self.memory_reentry_tag = np.zeros(self.initial_number, dtype=int)                            
+        self.variant_affinities = np.zeros((self.initial_number, self.n_variants))             
+        self.activated_time = np.zeros(self.initial_number)   
 
     def subset_bcell_fields(self, indices: np.ndarray) -> None:
         """
@@ -273,21 +147,12 @@ class Bcells(Parameters):
         attribute by selecting only the elements at positions given in `indices`.
 
         Args:
-            indices (np.ndarray): Array of indices to retain in all field arrays.
+            indices (np.ndarray[int]): Array of indices to retain in all field arrays.
 
-        Raises:
-            RuntimeError: If an error occurs during the subsetting operation.
-        
-        Example:
-            >>> idx_keep = np.array([0, 1, 3, 4])
-            >>> bcell_population.subset_bcell_fields(idx_keep)
         """
-        try:
-            for key in self.bcell_field_keys:
-                array = getattr(self, key)
-                setattr(self, key, array[indices])
-        except Exception as e:
-            raise RuntimeError(f"Error subsetting fields with indices {indices}: {e}")
+        for key in self.bcell_field_keys:
+            array = getattr(self, key)
+            setattr(self, key, array[indices])
 
 
     def exclude_bcell_fields(self, indices: np.ndarray) -> None:
@@ -298,20 +163,10 @@ class Bcells(Parameters):
         and then calls `subset_bcell_fields` with these complementary indices to update all field arrays.
 
         Args:
-            indices (np.ndarray): Array of indices representing B cells to be removed.
-
-        Raises:
-            RuntimeError: If filtering fails due to mismatched array dimensions or other issues.
-        
-        Example:
-            >>> idx_remove = np.array([2, 5, 8])
-            >>> bcell_population.exclude_fields(idx_remove)
+            indices (np.ndarray[int]): Array of indices representing B cells to be removed.
         """
-        try:
-            keep_indices = utils.get_other_idx(np.arange(self.lineage.size), indices)
-            self.subset_bcell_fields(keep_indices)
-        except Exception as e:
-            raise RuntimeError(f"Error excluding indices {indices}: {e}")
+        keep_indices = utils.get_other_idx(np.arange(self.lineage.size), indices)
+        self.subset_bcell_fields(keep_indices)
 
 
     def add_bcells(self, other: Self) -> None:
@@ -324,11 +179,8 @@ class Bcells(Parameters):
         along axis 0.
 
         Args:
-            other (Self): Another BCells instance to merge into this instance.
+            other (Self): Another Bcells instance to merge into this instance.
 
-        Raises:
-            ValueError: If a field's data type is unsupported for merging.
-            RuntimeError: If an unexpected error occurs during the merge.
         """
         for key in self.bcell_field_keys:
             current_field = getattr(self, key)
@@ -361,9 +213,6 @@ class Bcells(Parameters):
         Args:
             current_time (float): The current simulation time.
             shift (bool, optional): Whether to add a 0.5 * time_step offset. Defaults to True.
-
-        Raises:
-            RuntimeError: If an error occurs while updating the activation times.
         """
         offset = 0.5 * self.time_step if shift else 0
         self.activated_time.fill(current_time + offset)
@@ -374,14 +223,14 @@ class Bcells(Parameters):
 
     def get_dE(
         self, 
-        idx_new: int, 
-        idx: int, 
+        n_cells: int, 
         ep: int
     ) -> np.ndarray:
         """
-        Compute the affinity change (ΔE) for newly mutated B cells.
+        Pre-compute the possible affinity change (ΔE) that `n_cells` B cells can 
+        experience upon mutation to any of its residues. 
 
-        For the new cells generated between indices `idx` and `idx_new`, this method samples
+        For B cells between indices `idx` and `idx_new`, this method samples
         ΔE values from a log-normal distribution. It assumes that the underlying normal distribution
         has zero mean and a covariance given by:
         
@@ -392,20 +241,20 @@ class Bcells(Parameters):
             ΔE = -log10(e) * (exp(X) - mut_PDF[2])
         
         Args:
-            idx_new (int): Total B cell count after mutation.
+            idx_new (int): Index of B cell
             idx (int): B cell count before mutation.
             ep (int): Index of the target epitope.
 
         Returns:
             np.ndarray: An array of affinity changes with shape 
-                        ((idx_new - idx) * n_residues, n_variants).
+                        (n_cells * n_residues, n_variants).
 
         Raises:
             RuntimeError: If an error occurs during sampling or transformation.
         """
         mu = np.zeros(self.n_variants)
         sigma = self.mutation_pdf[1] ** 2 * self.epitope_covariance_matrix[ep]
-        num_samples = (idx_new - idx) * self.n_residues
+        num_samples = (n_cells) * self.n_residues
 
         # Sample from the underlying normal distribution and add the specified offset.
         X = self.mutation_pdf[0] + np.random.multivariate_normal(mu, sigma, num_samples)
