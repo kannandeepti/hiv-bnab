@@ -457,7 +457,7 @@ class Simulation(Parameters):
             seeding_bcells.add_bcells(seeding_bcells)
 
         # Set activated time
-        seeding_bcells.set_activated_time(self.current_time)
+        seeding_bcells.set_activation_time(self.current_time)
 
         #count number that entered in this time step
         self.naive_cells_entry[gc_idx].add_bcells(seeding_bcells)
@@ -478,8 +478,8 @@ class Simulation(Parameters):
         memory_bcells, plasma_bcells, nonexported_bcells = differentiated_bcells
 
         # Set activated time
-        memory_bcells.set_activated_time(self.current_time)
-        plasma_bcells.set_activated_time(self.current_time)
+        memory_bcells.set_activation_time(self.current_time)
+        plasma_bcells.set_activation_time(self.current_time)
 
         self.temporary_memory_bcells.add_bcells(memory_bcells)
         self.plasma_gc_bcells.add_bcells(plasma_bcells)
@@ -515,7 +515,7 @@ class Simulation(Parameters):
         seeding_bcells = self.memory_gc_bcells.get_seeding_bcells(self.ag_eff_conc, self.seeding_tcells_egc)
 
         # Set activated time
-        seeding_bcells.set_activated_time(self.current_time)
+        seeding_bcells.set_activation_time(self.current_time)
 
         # Seed
         self.memory_egc_bcells.add_bcells(seeding_bcells)
@@ -533,8 +533,8 @@ class Simulation(Parameters):
         memory_bcells, plasma_bcells, _ = differentiated_bcells
 
         # Set activated time
-        memory_bcells.set_activated_time(self.current_time)
-        plasma_bcells.set_activated_time(self.current_time)
+        memory_bcells.set_activation_time(self.current_time)
+        plasma_bcells.set_activation_time(self.current_time)
 
         self.plasma_egc_bcells.add_bcells(plasma_bcells)
         self.memory_egc_bcells.add_bcells(memory_bcells)

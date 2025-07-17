@@ -208,13 +208,13 @@ class Bcells(Parameters):
         Set the activation time for all B cells.
 
         This method fills the `activated_time` array with the provided `current_time`.
-        If `shift` is True, a temporal offset of 0.5 * time_step is added to improve numerical alignment.
+        If `shift` is True, a temporal offset of 0.5 * dt is added to improve numerical alignment.
 
         Args:
             current_time (float): The current simulation time.
-            shift (bool, optional): Whether to add a 0.5 * time_step offset. Defaults to True.
+            shift (bool, optional): Whether to add a 0.5 * dt offset. Defaults to True.
         """
-        offset = 0.5 * self.time_step if shift else 0
+        offset = 0.5 * self.dt if shift else 0
         self.activated_time.fill(current_time + offset)
     
     def set_memory_reentry_tag(self) -> None:
@@ -293,14 +293,7 @@ class Bcells(Parameters):
             tuple[np.ndarray, np.ndarray]:
                 - activation_signal: Array of activation signals (shape: (n_cells,)).
                 - activated: Boolean array indicating activation status for each cell (shape: (n_cells,)).
-
-        Raises:
-            ValueError: If conc_array does not have the expected shape.
-            RuntimeError: For any unexpected error during the computation.
         """
-        # Validate the shape: expect (n_cells, n_ag)
-        if conc_array.ndim != 2 or conc_array.shape[1] != self.n_ag:
-            raise ValueError(f"Invalid conc_array shape {conc_array.shape}; expected (n_cells, n_ag).")
 
         # Compute concentration term by normalizing with Ag_norm (C0)
         conc_term = conc_array / self.C0
@@ -308,18 +301,11 @@ class Bcells(Parameters):
         # Compute affinity term:
         # - Clip log10 affinities (for the targeted variants) to a maximum (E_sat)
         # - Convert these values to linear scale using 10^(affinity - E0)
-        energies = np.clip(self.variant_affinities[:, 0], None, self.E_sat)
+        energies = np.clip(self.variant_affinities[:, 0], None, self.Esat)
         aff_term = np.power(10, energies - self.E0)
 
         # Combine concentration and affinity terms with capture stringency exponent
-        signal = np.power(conc_term * aff_term, self.stringency)
-
-        # Adjust signal for alternative antigen capture if enabled (w1 > 0)
-        if self.w1 > 0:
-            signal = ((self.w1 + 1) * signal) / (self.w1 + signal)
-
-        # Sum the signal over all antigen variants to obtain a single value per cell
-        activation_signal = signal.sum(axis=1)
+        activation_signal = np.power(conc_term * aff_term, self.stringency)
 
         # Determine activation status:
         # For each cell, generate a random number uniformly in [0, 1). If the cell's activation signal
@@ -514,7 +500,7 @@ class Bcells(Parameters):
         """
         Compute indices of B cells that will undergo apoptosis during the current time step.
 
-        Each B cell dies with probability equal to (death_rate × time_step). This function
+        Each B cell dies with probability equal to (death_rate × dt). This function
         generates a uniform random number for each cell and selects those where the random
         number is below the computed death probability.
 
@@ -533,7 +519,7 @@ class Bcells(Parameters):
 
         This method performs the following steps:
         1. Compute the indices of cells to be removed using a stochastic process,
-            where each cell dies with probability (death_rate × time_step).
+            where each cell dies with probability (death_rate × dt).
         2. Exclude the identified cells from all B cell field arrays.
         3. If no cells remain (i.e., the population is empty), reset all B cell fields.
 
