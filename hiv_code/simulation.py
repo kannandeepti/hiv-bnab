@@ -520,10 +520,27 @@ class Simulation(Parameters):
         # Seed
         self.memory_egc_bcells.add_bcells(seeding_bcells)
 
-        #Birth and differentiation
-        daughter_bcells = self.memory_egc_bcells.get_daughter_bcells(
-            self.ag_eff_conc, self.n_tfh_egc #Leerang had self.nmax * self.n_gc
-        )
+        if self.egc_recycle_daughter:
+            daughter_bcells = self.memory_egc_bcells.get_daughter_bcells(
+                self.ag_eff_conc, self.n_tfh_egc
+            )
+        else:
+            #Birth and differentiation
+            #get indices of parent cells that will duplicate
+            dividing_indices = self.memory_egc_bcells.get_birth_indices(
+                self.ag_eff_conc, self.n_tfh_egc
+            )
+            #make 2 copies of daughter cells and aggregate them
+            daughter_bcells = self.memory_egc_bcells.get_bcells_from_indices(
+                dividing_indices
+            )
+            daughter_bcells_2 = copy.deepcopy(daughter_bcells)
+            daughter_bcells.add_bcells(daughter_bcells_2)
+
+            #remove parents from memory egc pool
+            self.memory_egc_bcells.exclude_bcell_fields(dividing_indices)
+
+        #divide total daughter b_cells into memory, plasma, non-exported
         differentiated_bcells = daughter_bcells.differentiate_bcells(
             self.egc_output_prob, 
             self.egc_output_pc_fraction,

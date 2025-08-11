@@ -136,6 +136,12 @@ class Parameters():
     """
     The fraction of exported GC B cells that differentiate into plasma cells.
     """
+
+    egc_recycle_daughter: int = 1
+    assert egc_recycle_daughter in [0, 1]
+    """
+    Whether to guarantee that one daughter cell is recycled for further selection in EGC.
+    """
     
     egc_output_prob: float = 1.
     """
