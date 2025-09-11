@@ -1,0 +1,34 @@
+run_params:
+  cpus_per_task : 2 #cpus per simulation
+  cpus_per_analysis : 1 #cpus for the analyze_sweep.py job
+  partition : xeon-p8
+  #if you leave this out, it will request
+  # num_jobs : 24
+  # max_jobs : 100
+  ndata : 3 #max number of sims to run in serial on one process
+
+num_sim_repeats : 50
+simulation_time : 400
+n_conserved_epitopes : 3
+n_variable_epitopes : 0
+n_ag : 2
+fdc_capacity : 1.0
+C0 : 1.0
+bcell_birth_rate : 2.77
+bcell_death_rate : 0.4
+seeding_tcells_gc : 10
+n_tfh_gc : 200
+seeding_tcells_egc : 
+  sweep : True
+  list : [200, 1000]
+n_tfh_egc : 2000
+f_ag : [0.5, 0.5]
+E1hs : [7.0, 6.6, 6.2]
+naive_target_fractions : [0.65, 0.25, 0.1]
+output_prob : 0.05
+memory_to_gc_fraction : 0
+n_naive_precursors : 2000
+masking :
+  sweep : True
+  list : [0, 1]
+write_simulation : False

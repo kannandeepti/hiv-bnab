@@ -1,0 +1,47 @@
+C0: 1.0
+E1hs:
+- 7.0
+- 6.818181818181818
+- 6.636363636363637
+- 6.454545454545455
+- 6.2727272727272725
+- 6.090909090909091
+bcell_birth_rate: 2.77
+bcell_death_rate: 0.4
+f_ag:
+- 0.5
+- 0.5
+fdc_capacity: 1.0
+memory_to_gc_fraction: 0
+n_ag: 2
+n_conserved_epitopes: 6
+n_naive_precursors: 7230
+n_tfh_egc: 2000
+n_tfh_gc: 1000
+n_variable_epitopes: 0
+naive_target_fractions:
+- 0.4411795465349305
+- 0.2535540988986648
+- 0.14572226109132133
+- 0.08374929638212622
+- 0.048132279803877846
+- 0.02766251728907923
+num_sim_repeats: 10
+output_prob: 0.05
+run_params:
+  cpus_per_analysis: 1
+  cpus_per_task: 5
+  ep_per_ag: 6
+  ndata: 1
+  partition: xeon-p8
+seeding_tcells_egc: 200
+seeding_tcells_gc: 10
+simulation_time: 400
+write_simulation: false
+masking: 
+  sweep: true
+  list: [0, 1]
+egc_recycle_daughter: false
+egc_output_pc_fraction : 
+  sweep : True
+  list : [0.3, 0.6]
