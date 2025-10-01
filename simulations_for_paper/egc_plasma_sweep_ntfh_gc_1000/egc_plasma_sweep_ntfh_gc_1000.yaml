@@ -3,8 +3,8 @@ run_params:
   cpus_per_analysis : 1 #cpus for the analyze_sweep.py job
   partition : xeon-p8
   #if you leave this out, it will request
-  # num_jobs : 24
-  # max_jobs : 100
+  # num_jobs : number of separate jobs to submit
+  # max_jobs : maximum number of jobs to submit 
   ndata : 2 #max number of sims to run in serial on one process
 
 num_sim_repeats : 10

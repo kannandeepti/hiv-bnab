@@ -3,7 +3,6 @@ channels:
   - conda-forge
 dependencies:
   - python=3.11
-  - poetry
   - ipython
   - scikit-learn
   - numba
@@ -17,4 +16,6 @@ dependencies:
   - tqdm
   - seaborn
   - scipy
-prefix: /home/gridsan/dkannan/.conda/envs/GCdynamics
+  - pip
+  - pip:
+    - typed-argument-parser

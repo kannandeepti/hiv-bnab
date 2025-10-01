@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools >= 61.0.0", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hiv-bnab"
+dynamic = ["version"]
+authors = [
+    {name = "Deepti Kannan", email = "dkannan@mit.edu" },
+    {name = "Eric Wang", email = "ericzwang@gmail.com" },
+]
+maintainers = [
+    {name = "Deepti Kannan", email = "dkannan@mit.edu" },
+]
+description = "Simulations of humoral immune response to HIV bnAb therapy"
+readme = "README.md"
+license = { file = "LICENSE.txt" }
+dependencies = [
+]
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3.11",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Typing :: Typed",
+]
+keywords = [
+]
+
+[tool.setuptools]
+package-dir = {"" = "src", "scripts" = "scripts"}
+
+[tool.setuptools.packages.find]
+where = ["src", "."]
+include = ["hiv_bnab*", "scripts*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "hiv_bnab.__version__"}
+
+[tool.setuptools.package-data]
+hiv_bnab = ["py.typed"]
+
+[tool.black]
+line-length = 121
+
+[project.urls]
+Homepage = "https://github.com/kannandeepti/hiv-bnab"

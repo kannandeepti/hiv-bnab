@@ -1,8 +1,8 @@
-"""Script save B cell affinity distributions over time and to animate them
+"""Script to save B cell affinity distributions over time and to animate them
 
 To run this script, use the following command:
 
-    python animate_affinity_distributions.py <sweep_name/sweep_i> <title>
+    python scripts/animate_affinity_distributions.py --config_file <config_file> --param_dir <sweep_name/sweep_i> --title <title>
 
 <sweep_name/sweep_i> is the name of the directory containing the simulation data
 <title> is the title of the plot
@@ -13,8 +13,7 @@ Used to create Figure S1B-C.
 import os
 import sys
 from pathlib import Path
-
-sys.path.append(os.getcwd())
+from tap import tapify
 
 import numpy as np
 import pandas as pd
@@ -26,12 +25,12 @@ import seaborn as sns
 import colorsys
 import functools
 
-import hiv_code
-from hiv_code.simulation import Simulation
-from hiv_code import utils
+import hiv_bnab
+from hiv_bnab.simulation import Simulation
+from hiv_bnab import utils
 
 import scripts
-from scripts import SWEEP_DIR, PLOT_DIR
+from scripts import load_config
 from scripts.analyze_sweep import epitope_colors
 
 slide_width = 11.5
@@ -94,10 +93,7 @@ def save_distributions(param_dir):
         return
     history = utils.expand(utils.read_pickle(replicates[0] / "history.pkl"))
     parameters = utils.read_json(replicates[0] / "parameters.json")
-    n_ep = (
-        parameters["n_conserved_epitopes"]
-        + parameters["n_ag"] * parameters["n_variable_epitopes"]
-    )
+    n_ep = parameters["n_conserved_epitopes"] + parameters["n_ag"] * parameters["n_variable_epitopes"]
     affinity_bins = parameters["affinity_bins"]
     aff_distr["affinity_bins"] = affinity_bins
     time = np.arange(history["gc"]["num_above_aff"].shape[0]) * parameters["tspan_dt"]
@@ -120,7 +116,7 @@ def save_distributions(param_dir):
     return aff_distr
 
 
-def animate_Bcell_affinity_distributions(aff_distr, field, title):
+def animate_Bcell_affinity_distributions(aff_distr, field: str, title: str, plot_dir: str):
     n_ep = aff_distr["plasma_gc"].shape[2]
     time = aff_distr["time"]
     colors = epitope_colors(n_ep)
@@ -156,14 +152,16 @@ def animate_Bcell_affinity_distributions(aff_distr, field, title):
         fig.tight_layout()
 
     ani = animation.FuncAnimation(fig, update, frames=len(time), repeat=False)
-    ani.save(
-        PLOT_DIR / f"{title}_{field}_aff_distribution.gif", writer="imagemagick", fps=10
-    )
+    ani.save(plot_dir / f"{title}_{field}_aff_distribution.gif", writer="imagemagick", fps=10)
+
+
+def save_and_animate_affinity_distributions(config_file: str, param_dir: str, title: str):
+    config = load_config(config_file)
+    sweep_dir = Path(config["sweep_dir"])
+    aff_distr = save_distributions(sweep_dir / param_dir)
+    for field in ["plasma_gc", "memory_gc", "plasma_egc", "memory_egc"]:
+        animate_Bcell_affinity_distributions(aff_distr, field, title, Path(config["plot_dir"]))
 
 
 if __name__ == "__main__":
-    param_dir = sys.argv[1]
-    title = sys.argv[2]
-    aff_distr = save_distributions(SWEEP_DIR / param_dir)
-    for field in ["plasma_gc", "memory_gc", "plasma_egc", "memory_egc"]:
-        animate_Bcell_affinity_distributions(aff_distr, field, title)
+    tapify(save_and_animate_affinity_distributions)

@@ -1,10 +1,13 @@
 run_params:
   cpus_per_task : 2 #cpus per simulation
   cpus_per_analysis : 1 #cpus for the analyze_sweep.py job
+  resort_directories : False #whether to resort the directories to ensure that all simulations 
+  # inside each parameter set direcotry have the same parameter values aside from the random seed. 
+  # Useful if simulations stopped prematurely and you re-run them in the same directory, so the directory structure gets messed up.
   partition : xeon-p8
   #if you leave this out, it will request
-  # num_jobs : 24
-  # max_jobs : 100
+  # num_jobs : number of separate jobs to submit
+  # max_jobs : maximum number of jobs to submit 
   ndata : 3 #max number of sims to run in serial on one process
 
 num_sim_repeats : 10

@@ -2,7 +2,7 @@
 
 To run this script, use the following command:
 
-    python clonal_diversity.py <sweep_name/sweep_i> <title>
+    python scripts/clonal_diversity.py --config_file <config_file> --param_dir <sweep_name/sweep_i> --title <title>
 
 <sweep_name/sweep_i> is the name of the directory containing the simulation data
 <title> is the title of the plot
@@ -13,8 +13,7 @@ Used to create Figure 5 of the main text.
 import os
 import sys
 from pathlib import Path
-
-sys.path.append(os.getcwd())
+from tap import tapify
 
 import numpy as np
 import pandas as pd
@@ -26,12 +25,12 @@ import seaborn as sns
 import colorsys
 import functools
 
-import hiv_code
-from hiv_code.simulation import Simulation
-from hiv_code import utils
+import hiv_bnab
+from hiv_bnab.simulation import Simulation
+from hiv_bnab import utils
 
 import scripts
-from scripts import SWEEP_DIR, PLOT_DIR
+from scripts import load_config
 from scripts.analyze_sweep import epitope_colors, darken_color
 
 slide_width = 11.5
@@ -124,8 +123,6 @@ paper_params = {
 }
 plt.rcParams.update(paper_params)
 
-PLOT_DIR = PLOT_DIR / "for_paper"
-
 
 def extract_lineage_data(param_dir):
     """Save a data structure that captures the number of clones in each lineage
@@ -150,13 +147,9 @@ def extract_lineage_data(param_dir):
 
     for j, expdir in enumerate(replicates):
         history = utils.expand(utils.read_pickle(expdir / "history.pkl"))
-        lineage["gc"][:, j, :, :] = history["gc"][
-            "num_by_lineage"
-        ]  # lineage data from each GC
+        lineage["gc"][:, j, :, :] = history["gc"]["num_by_lineage"]  # lineage data from each GC
         for field in fields:
-            lineage[field][:, j, :] = history[field][
-                "num_by_lineage"
-            ]  # lineage data for other cell types
+            lineage[field][:, j, :] = history[field]["num_by_lineage"]  # lineage data for other cell types
 
     # write summary files to directory with this unique parameter set
     # utils.write_pickle(lineage, param_dir/'lineage.pkl')
@@ -179,9 +172,7 @@ def create_color_map(ep_boundaries):
 
     # Base colors for the three epitopes
     base_colors = epitope_colors(n_ep)
-    shades = [
-        sns.light_palette(base_colors[i], n_colors=8, reverse=False) for i in range(3)
-    ]  # 8 shades per epitope
+    shades = [sns.light_palette(base_colors[i], n_colors=8, reverse=False) for i in range(3)]  # 8 shades per epitope
 
     # Assign a color to each lineage
     color_map = []
@@ -193,9 +184,7 @@ def create_color_map(ep_boundaries):
     return np.array(color_map)
 
 
-def plot_egc_pie_charts(
-    lineage_data, ep_boundaries, time_points, replicate_indices, title
-):
+def plot_egc_pie_charts(lineage_data, ep_boundaries, time_points, replicate_indices, title, plot_dir):
     """Plot pie charts at different `time_points` in simulation showing clonal
     diversity in example EGCs from simulation replicates indetified in `replicate_indices`.
     """
@@ -203,9 +192,7 @@ def plot_egc_pie_charts(
     n_time_points = len(time_points)
     n_rows = len(replicate_indices)
     fig_width = 11.5 / cm_in_inch
-    fig, axs = plt.subplots(
-        n_rows, n_time_points, figsize=(fig_width, fig_width / n_time_points * n_rows)
-    )
+    fig, axs = plt.subplots(n_rows, n_time_points, figsize=(fig_width, fig_width / n_time_points * n_rows))
 
     # Set up color palette (for expanded clones) and grey for small clones
     color_map = create_color_map(ep_boundaries)
@@ -239,34 +226,26 @@ def plot_egc_pie_charts(
                 axs[row_idx, col_idx].set_title("")
 
             # Add EGC labels
-            axs[row_idx, 0].set_ylabel(
-                f"EGC {replicate_idx + 1}", rotation=0, labelpad=15, va="center"
-            )
+            axs[row_idx, 0].set_ylabel(f"EGC {replicate_idx + 1}", rotation=0, labelpad=15, va="center")
 
     fig.tight_layout()
-    plt.savefig(PLOT_DIR / f"egc_clonal_pie_charts_{title}.pdf")
+    plt.savefig(plot_dir / f"egc_clonal_pie_charts_{title}.pdf")
 
 
 # Function to plot clonal dominance for multiple rows of pie charts
-def plot_gc_pie_charts(
-    lineage_data, ep_boundaries, time_points, replicate_indices, gc_indices, title
-):
+def plot_gc_pie_charts(lineage_data, ep_boundaries, time_points, replicate_indices, gc_indices, title, plot_dir):
     """Plot pie charts at different `time_points` in simulation showing clonal
     diversity in example GCs identified by `replicate_indices` and `gc_indices`."""
 
     n_time_points = len(time_points)
     n_rows = len(replicate_indices)
     fig_width = 11.5 / cm_in_inch
-    fig, axs = plt.subplots(
-        n_rows, n_time_points, figsize=(fig_width, fig_width / n_time_points * n_rows)
-    )
+    fig, axs = plt.subplots(n_rows, n_time_points, figsize=(fig_width, fig_width / n_time_points * n_rows))
 
     # Set up color palette (for expanded clones) and grey for small clones
     color_map = create_color_map(ep_boundaries)
 
-    for row_idx, (replicate_idx, gc_idx) in enumerate(
-        zip(replicate_indices, gc_indices)
-    ):
+    for row_idx, (replicate_idx, gc_idx) in enumerate(zip(replicate_indices, gc_indices)):
         for col_idx, t in enumerate(time_points):
             # Get the clone data for the specific time point, replicate, and GC
             clone_data = lineage_data[t, replicate_idx, gc_idx, :]
@@ -299,10 +278,10 @@ def plot_gc_pie_charts(
         )
 
     fig.tight_layout()
-    plt.savefig(PLOT_DIR / f"gc_clonal_pie_charts_{title}.pdf")
+    plt.savefig(plot_dir / f"gc_clonal_pie_charts_{title}.pdf")
 
 
-def plot_epitope_frequencies_violin(lineage_data, ep_boundaries, time_points, title):
+def plot_epitope_frequencies_violin(lineage_data, ep_boundaries, time_points, title, plot_dir):
     """Calculate distribution of frequencies of GC B cells that target each epitope
     and make violin plots across 2000 independent GCs at different time points."""
 
@@ -325,16 +304,10 @@ def plot_epitope_frequencies_violin(lineage_data, ep_boundaries, time_points, ti
             total_clones_in_gc = np.sum(data_at_time_t[gc, :])
             for i in range(n_ep):
                 if total_clones_in_gc > 0:
-                    clones_targeting_epitope = data_at_time_t[
-                        gc, ep_boundaries[i] : ep_boundaries[i + 1]
-                    ]
-                    epitope_frequencies[gc, i] = (
-                        np.sum(clones_targeting_epitope) / total_clones_in_gc
-                    )
+                    clones_targeting_epitope = data_at_time_t[gc, ep_boundaries[i] : ep_boundaries[i + 1]]
+                    epitope_frequencies[gc, i] = np.sum(clones_targeting_epitope) / total_clones_in_gc
                 else:
-                    epitope_frequencies[gc, i] = (
-                        0.0  # If no clones in GC, set frequency to 0
-                    )
+                    epitope_frequencies[gc, i] = 0.0  # If no clones in GC, set frequency to 0
 
         # Create a violin plot for the current time point
         sns.violinplot(
@@ -348,12 +321,12 @@ def plot_epitope_frequencies_violin(lineage_data, ep_boundaries, time_points, ti
             axs[idx].set_ylabel("Frequency")
 
     fig.tight_layout()
-    plt.savefig(PLOT_DIR / f"epitope_frequencies_{title}.png")
+    plt.savefig(plot_dir / f"epitope_frequencies_{title}.png")
     # epitope frequencies at the final time point
     return epitope_frequencies
 
 
-def plot_dominant_clone_frequencies(lineage_data, time, day_400_stats, title):
+def plot_dominant_clone_frequencies(lineage_data, time, day_400_stats, title, plot_dir):
     """Calculate distribution of frequencies of the most dominant clone across 2000
     independent GCs at different time points and plot as a function of time."""
 
@@ -368,18 +341,10 @@ def plot_dominant_clone_frequencies(lineage_data, time, day_400_stats, title):
         ep_data = lineage_data[:, day_400_stats[f"ep_{i + 1}"]["indices"], :]
         dominant_clones = np.max(ep_data, axis=2)
         total_clones = np.sum(ep_data, axis=2)
-        dominant_frequencies = (
-            dominant_clones / total_clones
-        )  # shape (n_time_points, total_gcs)
-        mean_frequencies = np.mean(
-            dominant_frequencies, axis=1
-        )  # Shape: (n_time_points,)
-        q25_frequencies = np.percentile(
-            dominant_frequencies, 25, axis=1
-        )  # 25th percentile
-        q75_frequencies = np.percentile(
-            dominant_frequencies, 75, axis=1
-        )  # 75th percentile
+        dominant_frequencies = dominant_clones / total_clones  # shape (n_time_points, total_gcs)
+        mean_frequencies = np.mean(dominant_frequencies, axis=1)  # Shape: (n_time_points,)
+        q25_frequencies = np.percentile(dominant_frequencies, 25, axis=1)  # 25th percentile
+        q75_frequencies = np.percentile(dominant_frequencies, 75, axis=1)  # 75th percentile
         ax.plot(time, mean_frequencies, color=colors[i], label=f"ep {i+1}")
         ax.fill_between(
             time,
@@ -394,11 +359,11 @@ def plot_dominant_clone_frequencies(lineage_data, time, day_400_stats, title):
     ax.set_xlabel("Time (days)")
     ax.set_ylabel("Dominant clone frequency")
     fig.tight_layout()
-    plt.savefig(PLOT_DIR / f"dominant_clone_frequencies_by_epitope_{title}.png")
+    plt.savefig(plot_dir / f"dominant_clone_frequencies_by_epitope_{title}.png")
 
 
 def plot_time_clone_became_dominant(
-    lineage_data, time, day_400_stats, title, num_traj=5, dominance_thresh=0.5
+    lineage_data, time, day_400_stats, title, plot_dir, num_traj=5, dominance_thresh=0.5
 ):
     """For each GC, determine the time point at which the most dominant clone at
     day 400 took over the GC (i.e. reached > 50% of the population). Plot distribution of these
@@ -423,9 +388,7 @@ def plot_time_clone_became_dominant(
             # find index of clone that eventually wins by day 400
             win_idx = np.argmax(ep_data[-1, gc_idx, :])
             # frequency of winning clone within GC over time
-            freq_dynamics = ep_data[:, gc_idx, win_idx] / np.sum(
-                ep_data[:, gc_idx, :], axis=1
-            )
+            freq_dynamics = ep_data[:, gc_idx, win_idx] / np.sum(ep_data[:, gc_idx, :], axis=1)
             ep_dom_clone_dynamics[:, gc_idx] = freq_dynamics
             # time where frequency of winning clone reaches > dominance_thresh
             time_idx = np.searchsorted(freq_dynamics, dominance_thresh)
@@ -455,7 +418,7 @@ def plot_time_clone_became_dominant(
     ax.set_xlabel("Time (days)")
     ax.set_title("Winning clone frequency")
     fig.tight_layout()
-    plt.savefig(PLOT_DIR / f"winning_clone_frequencies_by_epitope_{title}.pdf")
+    plt.savefig(plot_dir / f"winning_clone_frequencies_by_epitope_{title}.pdf")
 
     # fig, ax = plt.subplots()
     # sns.violinplot(data=time_of_dominance, palette=colors, ax=ax)
@@ -465,7 +428,7 @@ def plot_time_clone_became_dominant(
     # plt.savefig(PLOT_DIR/f'winning_clone_time_to_dominate_thresh_{dominance_thresh}_{title}.png')
 
 
-def plot_egc_clonal_diversity(lineage_data, ep_boundaries, title):
+def plot_egc_clonal_diversity(lineage_data, ep_boundaries, title, plot_dir):
     """Make a violin plot showing distribution of frequency of each clone within each epitope class
     at day 400 in EGC."""
     in_class_freq_data = []
@@ -487,10 +450,10 @@ def plot_egc_clonal_diversity(lineage_data, ep_boundaries, title):
     ax.set_xticklabels([f"ep {i}" for i in range(1, len(in_class_freq_data) + 1)])
     ax.set_title("Dominant clone frequency \nwithin epitope class in EGC")
     fig.tight_layout()
-    plt.savefig(PLOT_DIR / f"egc_within_class_clonal_diversity_d400_{title}.pdf")
+    plt.savefig(plot_dir / f"egc_within_class_clonal_diversity_d400_{title}.pdf")
 
 
-def make_lineage_plots(param_dir, title):
+def make_lineage_plots(param_dir, title, plot_dir):
     """Save lineage data, read from the data and make violin / pie chart plots illustrating
     clonal dynamics as a function of time."""
     lineage = extract_lineage_data(param_dir)
@@ -509,24 +472,18 @@ def make_lineage_plots(param_dir, title):
     gc_idxs = []
     for i in range(n_ep):
         day_400_stats[f"ep_{i + 1}"] = {}
-        day_400_stats[f"ep_{i + 1}"]["fraction_won"] = (
-            np.sum(winning_class == i) / n_gcs
-        )
+        day_400_stats[f"ep_{i + 1}"]["fraction_won"] = np.sum(winning_class == i) / n_gcs
         # extract the replicate index and GC index of a GC where this epitope won
         index = np.where(winning_class == i)[0]
         day_400_stats[f"ep_{i + 1}"]["indices"] = index
         # choose an example GC where this epitope won and record its replicate/GC index
         replicate_idxs.append(int(np.floor(index[3] / 200)))
         gc_idxs.append(int(index[2] % 200))
-        print(
-            f"Number of GCs dominanted by epitope {i+1}: {np.sum(winning_class == i) / n_gcs}"
-        )
+        print(f"Number of GCs dominanted by epitope {i+1}: {np.sum(winning_class == i) / n_gcs}")
 
     # plot clonal dominance stratefied winner of GC
-    plot_time_clone_became_dominant(
-        lineage["gc"], lineage["time"], day_400_stats, title
-    )
-    plot_egc_clonal_diversity(lineage["memory_egc"], lineage["ep_boundaries"], title)
+    plot_time_clone_became_dominant(lineage["gc"], lineage["time"], day_400_stats, title, plot_dir)
+    plot_egc_clonal_diversity(lineage["memory_egc"], lineage["ep_boundaries"], title, plot_dir)
 
     # plot pie charts
     time_indices_gc = [6, 29, 36, 44, 59, 99]  # Replace with your specific time points
@@ -545,6 +502,7 @@ def make_lineage_plots(param_dir, title):
         replicate_idxs,
         gc_idxs,
         title,
+        plot_dir,
     )
     plot_egc_pie_charts(
         lineage["memory_egc"],
@@ -552,10 +510,16 @@ def make_lineage_plots(param_dir, title):
         time_indices_egc,
         [0, 1, 2],
         title,
+        plot_dir,
     )
 
 
+def make_lineage_plots_from_config(config_file: str, param_dir: str, title: str):
+    config = load_config(config_file)
+    sweep_dir = Path(config["sweep_dir"])
+    plot_dir = Path(config["plot_dir"])
+    make_lineage_plots(sweep_dir / param_dir, title, plot_dir)
+
+
 if __name__ == "__main__":
-    param_dir = sys.argv[1]
-    title = sys.argv[2]
-    make_lineage_plots(SWEEP_DIR / param_dir, title)
+    tapify(make_lineage_plots_from_config)

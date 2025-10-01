@@ -4,11 +4,12 @@ and run associated humoral immune response simulations.
 
 To run this script, use the following command:
 
-    python shared_epitopes.py <sweep_name>
+    python scripts/shared_epitopes.py --config_file <config_file> --sweep_name <sweep_name>
 
-Replace `<sweep_name>` with the name of the sweep directory, i.e. 12_epitope_sweep.
-This script will use the SWEEP_DIR/<sweep_name>/<sweep_name>.yaml as a template and then create
-new directories within SWEEP_DIR labeled <x_epitope_sweep> where x is the number of
+Replace `<sweep_name>` with the name of the sweep directory, i.e. 12_epitope_sweep
+and ensure that <sweep_name> exists in the `sweep_dir` specified in the scripts config file.
+This script will use the `sweep_dir`/<sweep_name>/<sweep_name>.yaml as a template and then create
+new directories within `sweep_dir`/<sweep_name> labeled <x_epitope_sweep> where x is the number of
 unique epitopes across the two antigens. It will then write a yaml file modifed from the
 template with the parameters for that number of epitopes.
 
@@ -23,10 +24,10 @@ import sys
 import os
 import numpy as np
 from scipy.optimize import fsolve
+from tap import tapify
 
-sys.path.append(os.getcwd())
-from scripts import SWEEP_DIR, INPUT_SUFFIX, clean_up_log_files
-from hiv_code import utils
+from scripts import INPUT_SUFFIX, clean_up_log_files, load_config
+from hiv_bnab import utils
 
 
 def geometric_sequence_sum(n, r):
@@ -78,18 +79,19 @@ def naive_target_fractions_fixed_total(n_ep, min_precursors, naive_precursors):
     return ntfs
 
 
-if __name__ == "__main__":
-    n_ag = 2
-    ep_per_ag = 6
-    min_precursors = 200
-    max_precursors = 1300
-    sweep_name = str(sys.argv[1])
+def submit_shared_epitope_simulations(
+    config_file: str,
+    sweep_name: str,
+    n_ag: int = 2,
+    ep_per_ag: int = 6,
+    min_precursors: int = 200,
+    max_precursors: int = 1300,
+):
+    config = load_config(config_file)
+    sweep_dir = Path(config["sweep_dir"])
     sweep_file = sweep_name + INPUT_SUFFIX
-
     # first calculate the total naive precursors based on max number of epitopes
-    naive_precursors, ntfs = naive_target_fractions(
-        ep_per_ag * n_ag, min_precursors, max_precursors
-    )
+    naive_precursors, ntfs = naive_target_fractions(ep_per_ag * n_ag, min_precursors, max_precursors)
     print(f"Total naive precursors: {naive_precursors}")
 
     for i in range(ep_per_ag, ep_per_ag * n_ag + 1):
@@ -99,19 +101,13 @@ if __name__ == "__main__":
         E1hs = np.linspace(6.0, 7.0, n_ag * ep_per_ag)
         dom_ag = E1hs[-1::-2]  # 6 E1hs towards Ag 1
         subdom_ag = E1hs[-2::-2]  # 6 E1hs towards Ag 2
-        variable_ep_E1h = np.concatenate(
-            (dom_ag[0:n_variable_ep], subdom_ag[0:n_variable_ep])
-        )
+        variable_ep_E1h = np.concatenate((dom_ag[0:n_variable_ep], subdom_ag[0:n_variable_ep]))
         conserved_ep_E1h = dom_ag[(len(dom_ag) - n_conserved_ep) :]
         E1h = np.concatenate((variable_ep_E1h, conserved_ep_E1h))
-        target_fractions = naive_target_fractions_fixed_total(
-            i, min_precursors, naive_precursors
-        )
+        target_fractions = naive_target_fractions_fixed_total(i, min_precursors, naive_precursors)
         dom_ag = target_fractions[-1::-2]
         subdom_ag = target_fractions[-2::-2]
-        variable_ep_ntf = np.concatenate(
-            (dom_ag[0:n_variable_ep], subdom_ag[0:n_variable_ep])
-        )
+        variable_ep_ntf = np.concatenate((dom_ag[0:n_variable_ep], subdom_ag[0:n_variable_ep]))
         conserved_ep_ntf = dom_ag[(len(dom_ag) - n_conserved_ep) :]
         target_fractions = np.concatenate((variable_ep_ntf, conserved_ep_ntf))
         # parameters to update
@@ -123,13 +119,25 @@ if __name__ == "__main__":
             "n_naive_precursors": naive_precursors,
         }
         # make a directory and a yaml file with these parameters substituted
-        path = SWEEP_DIR / f"{i}_epitope_sweep"
+        path = sweep_dir / sweep_name / f"{i}_epitope_sweep"
         path.mkdir(exist_ok=True)
-        with open(SWEEP_DIR / sweep_file, "r") as file:
+        with open(sweep_dir / sweep_name / sweep_file, "r") as file:
             yaml_data = yaml.safe_load(file)
         yaml_data.update(params_update)
         utils.write_yaml(yaml_data, path / f"{i}_epitope_sweep.yaml")
         # submit job
         result = subprocess.run(
-            ["python", "scripts/submit_job.py", f"{i}_epitope_sweep"], text=True
+            [
+                "python",
+                "scripts/submit_job.py",
+                "--config_file",
+                "configs/shared_epitope_config.yaml",
+                "--sweep_name",
+                f"{i}_epitope_sweep",
+            ],
+            text=True,
         )
+
+
+if __name__ == "__main__":
+    tapify(submit_shared_epitope_simulations)

@@ -3,11 +3,12 @@ Script to run simulations for a SLURM array job
 
 This script is called by the submit_job.py script to run simulations for a given sweep
 
-    python run_simulation.py <task_id> <num_tasks> <sweep_name>
+    python scripts/run_simulation.py <task_id> <num_tasks> <sweep_name> <log_files_path>
 
 <task_id> is the task ID of the SLURM array job
 <num_tasks> is the total number of tasks in the SLURM array job
 <sweep_name> is the name of the sweep directory
+<log_files_path> is the path to the diectory containing the log files
 
 This script will run the simulations for the given task ID. It will also clean up log files
 for jobs that completed successfully without errors.
@@ -21,16 +22,15 @@ import os
 import sys
 import time
 
-sys.path.append(os.getcwd())
-import hiv_code
-from hiv_code import utils
-from hiv_code.simulation import Simulation
-from scripts import SWEEP_DIR, LOG_DIR, clean_up_log_files
+import hiv_bnab
+from hiv_bnab import utils
+from hiv_bnab.simulation import Simulation
+from scripts import clean_up_log_files
 
 
-def enumerate_completed_tasks(sweep_name):
+def enumerate_completed_tasks(sweep_dir: Path):
     """Determine which simulations have already been run in this sweep."""
-    sweep_dir = SWEEP_DIR / sweep_name
+    # sweep_dir = SWEEP_DIR / sweep_name
     sweeps_ran = {}  # dictionary mapping param_dir to list of seed replicates ran
     for param_dir in sweep_dir.iterdir():
         if param_dir.is_dir():
@@ -43,12 +43,12 @@ def enumerate_completed_tasks(sweep_name):
     return sweeps_ran
 
 
-def prune_completed_tasks(sweep_name, params_per_task):
+def prune_completed_tasks(sweep_dir: Path, params_per_task: list[Path]):
     """If job gets interrupted or cancelled, determine which simulations
     still need to be run. First, generate a list of all simulations that
     have already been run within this sweep. Then remove any simulations
     that have already been run from params_per_task"""
-    sweeps_ran = enumerate_completed_tasks(sweep_name)
+    sweeps_ran = enumerate_completed_tasks(sweep_dir)
     for input_file in params_per_task[:]:
         if input_file.parent in sweeps_ran.keys():
             replicates_ran = sweeps_ran[input_file.parent]
@@ -59,17 +59,18 @@ def prune_completed_tasks(sweep_name, params_per_task):
     return params_per_task
 
 
-def batch_tasks(sweep_name):
+def batch_tasks(sweep_dir: str | Path):
     """
     Looks inside sweep_dir for input files that end in *.json ->
     number of files corresponds to number of unique parameter sets.
     Divides total number of sweeps by number of jobs, such that each job
     runs some sweeps in serial.
     """
+    sweep_dir = Path(sweep_dir)
     # Grab task ID and number of tasks
     my_task_id = int(sys.argv[1])
     num_tasks = int(sys.argv[2])
-    sweep_dir = SWEEP_DIR / sweep_name
+    # sweep_dir = SWEEP_DIR / sweep_name
 
     # count parameters to sweep from input files in directory
     # TODO : search recursively through subdirectories for json files
@@ -77,7 +78,7 @@ def batch_tasks(sweep_name):
     # batch to process with this task
     params_per_task = input_param_files[my_task_id : len(input_param_files) : num_tasks]
     print(params_per_task)
-    params_per_task = prune_completed_tasks(sweep_name, params_per_task)
+    params_per_task = prune_completed_tasks(sweep_dir, params_per_task)
     print(params_per_task)
     tic = time.time()
     sims_ran = 0
@@ -98,6 +99,8 @@ def batch_tasks(sweep_name):
 
 
 if __name__ == "__main__":
-    sweep_name = str(sys.argv[3])
-    batch_tasks(sweep_name)
-    clean_up_log_files(sweep_name)
+    sweep_dir = str(sys.argv[3])
+    log_files_path = str(sys.argv[4])
+    sweep_name = Path(sweep_dir).name
+    batch_tasks(sweep_dir)
+    clean_up_log_files(log_files_path, sweep_name)

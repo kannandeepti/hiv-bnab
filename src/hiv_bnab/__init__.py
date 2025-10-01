@@ -17,3 +17,7 @@ into plasma cells which secrete the majority of antibodies in serum. The
 simulation thus predicts the dynamics of the concentration and affinity of
 antibodies targeting distinct epitopes.
 """
+
+__version__ = "0.1.0"
+
+from hiv_bnab import *

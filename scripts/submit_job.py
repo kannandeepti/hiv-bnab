@@ -4,12 +4,12 @@ Also submits an analysis job that runs once the simulations in the sweep have co
 
 To run this script, use the following command:
 
-    python submit_job.py <sweep_name>
+    python scripts/submit_job.py --config_file <config_file> --sweep_name <sweep_name>
 
 Replace `<sweep_name>` with the name of the sweep directory, i.e. 3_epitope_sweep_C_C0
-and ensure that <sweep_name> exists in the SWEEP_DIR direcotry specified in __init__.py.
-This script will process the parameter sweeps in SWEEP_DIR/<sweep_name>/<sweep_name>.yaml and create
-subdirectories SWEEP_DIR/<sweep_name>/sweep_<i> where i is the index of each unique
+and ensure that <sweep_name> exists in the `sweep_dir` specified in the scripts config file.
+This script will process the parameter sweep instructions in `sweep_dir`/<sweep_name>/<sweep_name>.yaml and create
+subdirectories `sweep_dir`/<sweep_name>/sweep_<i> where i is the index of each unique
 parameter set. Within each sweep_<i> directory, the script will write a json file for each
 simulation replicate sweep_<i>_<j>.json where j is the replicate index.
 
@@ -27,17 +27,16 @@ from itertools import product
 import subprocess
 import sys
 import os
+from tap import tapify
 
-sys.path.append(os.getcwd())
-
-from hiv_code import utils
-from scripts import SWEEP_DIR, INPUT_SUFFIX, clean_up_log_files
+from hiv_bnab import utils
+from scripts import INPUT_SUFFIX, load_config, clean_up_log_files
 
 
-def get_values_from_sweep_config(param_sweep_config):
+def get_values_from_sweep_config(param_sweep_config: dict):
     """Get the values to sweep from the sweep config specifications.
 
-    allowed keys are 'list' -> directly specify values to sweept
+    allowed keys are 'list' -> directly specify values to sweep
                      'min' -> minimum value (inclusive)
                      'max' -> maximum value (inclusive)
                      'num' -> how many values to sweep, including min & max
@@ -66,7 +65,7 @@ def get_values_from_sweep_config(param_sweep_config):
                 return np.logspace(min_value, max_value, param_sweep_config["num"])
 
 
-def process_sweep_file(sweep_file):
+def process_sweep_file(sweep_file: Path | str):
     """Parse file that specifies parameters to sweep.
 
     Args:
@@ -115,9 +114,7 @@ def process_sweep_file(sweep_file):
                         # so far not relevant, but could be if matrices become inputs to Parameters
                         values_to_sweep.append([param_config[key]])
                     else:
-                        values_to_sweep.append(
-                            get_values_from_sweep_config(param_config[key])
-                        )
+                        values_to_sweep.append(get_values_from_sweep_config(param_config[key]))
                 sweep_param_values.append(list(product(*values_to_sweep)))
             # the parameter is a value that is swept
             else:
@@ -138,7 +135,7 @@ def process_sweep_file(sweep_file):
     return run_config, sweep_param_keys, sweep_param_values, num_sim_repeats
 
 
-def write_submission_file(slurm_file, run_config):
+def write_submission_file(slurm_file: Path | str, run_config: dict, log_files_path: str):
     """Write a slurm submission script to `slurm_file` using specifications in run_config.
 
     Args:
@@ -154,10 +151,9 @@ def write_submission_file(slurm_file, run_config):
         or "num_jobs" not in run_config
         or "partition" not in run_config
         or "sweep_name" not in run_config
+        or "conda_env" not in run_config
     ):
-        raise ValueError(
-            "Required keys are 'partition', 'cpus_per_task', 'num_jobs', 'sweep_name'"
-        )
+        raise ValueError("Required keys are 'partition', 'cpus_per_task', 'num_jobs', 'sweep_name'")
 
     with open(slurm_file, "w+") as f:
         f.write("#!/bin/bash \n")
@@ -166,24 +162,24 @@ def write_submission_file(slurm_file, run_config):
         f.write(f'#SBATCH -o log_files/{run_config["sweep_name"]}.log-%A-%a \n')
         f.write(f'#SBATCH --array=0-{int(run_config["num_jobs"])} \n')
 
-        f.write(f"source /etc/profile \n")
-        f.write(f"module load anaconda/2023b \n")
+        if "subsmission_script_prepend" in run_config:
+            for line in run_config["subsmission_script_prepend"]:
+                f.write(line)
 
         f.write(f'echo "My task ID: " $SLURM_ARRAY_TASK_ID \n')
         f.write(f'echo "Number of tasks: " $SLURM_ARRAY_TASK_COUNT \n')
 
-        f.write(f"source activate GCdynamics \n")
+        f.write("cd $SLURM_SUBMIT_DIR \n")
+        f.write(f"source activate {run_config['conda_env']} \n")
+        if "path_to_conda_env" in run_config:
+            f.write(f"export PATH={run_config['path_to_conda_env']}/bin:$PATH \n")
         f.write(
-            f"export PATH=/home/gridsan/dkannan/.conda/envs/GCdynamics/bin:$PATH \n"
-        )
-        f.write(f"echo $PATH \n")
-        f.write(
-            f'python scripts/run_simulation.py $SLURM_ARRAY_TASK_ID $SLURM_ARRAY_TASK_COUNT {run_config["sweep_name"]} \n'
+            f'python scripts/run_simulation.py $SLURM_ARRAY_TASK_ID $SLURM_ARRAY_TASK_COUNT {run_config["sweep_dir"]}/{run_config["sweep_name"]} {log_files_path}\n'
         )
         f.write(f"conda deactivate \n")
 
 
-def write_analysis_file(slurm_file, run_config):
+def write_analysis_file(slurm_file: Path | str, run_config: dict, config_file: str):
     """Write a slurm submission script to `slurm_file` using specifications in run_config.
 
     Args:
@@ -199,10 +195,9 @@ def write_analysis_file(slurm_file, run_config):
         "partition" not in run_config
         or "cpus_per_analysis" not in run_config
         or "sweep_name" not in run_config
+        or "conda_env" not in run_config
     ):
-        raise ValueError(
-            "Required keys are 'partition', 'cpus_per_analysis', 'sweep_name'"
-        )
+        raise ValueError("Required keys are 'partition', 'cpus_per_analysis', 'sweep_name', 'conda_env'")
 
     if "ep_per_ag" not in run_config:
         run_config["ep_per_ag"] = 3
@@ -211,27 +206,27 @@ def write_analysis_file(slurm_file, run_config):
         f.write("#!/bin/bash \n")
         f.write(f'#SBATCH -p {run_config["partition"]} \n')
         f.write(f'#SBATCH -c {run_config["cpus_per_analysis"]} \n')
-        f.write(
-            f'#SBATCH -o log_files/{run_config["sweep_name"]}.analysis.log-%A-%a \n'
-        )
+        f.write(f'#SBATCH -o log_files/{run_config["sweep_name"]}.analysis.log-%A-%a \n')
 
-        f.write(f"source /etc/profile \n")
-        f.write(f"module load anaconda/2023b \n")
-
-        f.write(f"source activate GCdynamics \n")
-        f.write(
-            f"export PATH=/home/gridsan/dkannan/.conda/envs/GCdynamics/bin:$PATH \n"
-        )
-        f.write(f"echo $PATH \n")
-        f.write(
-            f'python scripts/analyze_sweep.py {run_config["sweep_name"]} {run_config["ep_per_ag"]}\n'
-        )
+        if "subsmission_script_prepend" in run_config:
+            for line in run_config["subsmission_script_prepend"]:
+                f.write(line)
+        f.write("cd $SLURM_SUBMIT_DIR \n")
+        f.write(f"source activate {run_config['conda_env']} \n")
+        if "path_to_conda_env" in run_config:
+            f.write(f"export PATH={run_config['path_to_conda_env']}/bin:$PATH \n")
+        if "resort_directories" in run_config:
+            f.write(
+                f'python scripts/analyze_sweep.py --config_file {config_file} --sweep_name {run_config["sweep_name"]} --ep_per_ag {run_config["ep_per_ag"]} --resort_directories {run_config["resort_directories"]}\n'
+            )
+        else:
+            f.write(
+                f'python scripts/analyze_sweep.py --config_file {config_file} --sweep_name {run_config["sweep_name"]} --ep_per_ag {run_config["ep_per_ag"]}\n'
+            )
         f.write(f"conda deactivate \n")
 
 
-def write_input_json_files(
-    sweep_dir, sweep_param_keys, sweep_param_values, num_sim_repeats
-):
+def write_input_json_files(sweep_dir, sweep_param_keys, sweep_param_values, num_sim_repeats):
     """Generate a combinatorial sweep and write 1 input file per parameter set.
 
     Args:
@@ -253,27 +248,24 @@ def write_input_json_files(
             utils.write_json(param_dict, param_dir / f"sweep_{i}_{j}.json")
 
 
-def submit_array_job():
-    sweep_name = str(sys.argv[1])
+def submit_array_job(config_file: str, sweep_name: str):
+    config = load_config(config_file)
+    SWEEP_DIR = Path(config["sweep_dir"])
     sweep_file = sweep_name + INPUT_SUFFIX
     sweep_dir = SWEEP_DIR / sweep_name
 
     try:
-        run_config, sweep_param_keys, sweep_param_values, num_sim_repeats = (
-            process_sweep_file(sweep_dir / sweep_file)
-        )
+        run_config, sweep_param_keys, sweep_param_values, num_sim_repeats = process_sweep_file(sweep_dir / sweep_file)
     except FileExistsError as e:
         print(f"Sweep file in {str(sweep_dir/sweep_file)} does not exist.")
         raise e
-
-    write_input_json_files(
-        sweep_dir, sweep_param_keys, sweep_param_values, num_sim_repeats
-    )
-    write_submission_file(sweep_dir / "run_sweep.sbatch", run_config)  # array job
-    write_analysis_file(sweep_dir / "run_analysis.sbatch", run_config)  # single job
-    result = subprocess.run(
-        ["sbatch", str(sweep_dir / "run_sweep.sbatch")], capture_output=True, text=True
-    )
+    # read slurm config yaml file and merge with run_config
+    slurm_config = load_config(config_file)
+    run_config = {**slurm_config, **run_config}
+    write_input_json_files(sweep_dir, sweep_param_keys, sweep_param_values, num_sim_repeats)
+    write_submission_file(sweep_dir / "run_sweep.sbatch", run_config, config["log_dir"])  # array job
+    write_analysis_file(sweep_dir / "run_analysis.sbatch", run_config, config_file)  # single job
+    result = subprocess.run(["sbatch", str(sweep_dir / "run_sweep.sbatch")], capture_output=True, text=True)
     if result.returncode == 0:
         output = result.stdout
         jobid = output.split()[-1]
@@ -285,8 +277,8 @@ def submit_array_job():
             ]
         )
     # clean up log files here:
-    clean_up_log_files(sweep_name + ".analysis")
+    clean_up_log_files(config["log_dir"], sweep_name + ".analysis")
 
 
 if __name__ == "__main__":
-    submit_array_job()
+    tapify(submit_array_job)

@@ -2,17 +2,30 @@
 
 To run this script, use the following command:
 
-    python analyze_sweep.py <sweep_name> <ep_per_ag>
+    python scripts/analyze_sweep.py --config_file <config_file> --sweep_name <sweep_name> --ep_per_ag <ep_per_ag>
 
 <sweep_name> is the name of the sweep directory
-<ep_per_ag> is the number of epitopes per antigen [relevant for epitope coloring in plots]
+<ep_per_ag> is the number of epitopes per antigen [relevant for epitope coloring in
+plots]
+Optionally add the --resort_directories flag to resort the directories to ensure that
+all simulations inside each parameter set direcotry (<sweep_name>/<sweep_i>) have the same parameter values aside
+from the random seed. Useful if simulations stopped prematurely and you re-run them in
+the same directory, so the directory structure gets messed up.
+
+For each distinct parameter set (<sweep_name>/<sweep_i>) inside
+the `sweep_dir` specified in the scripts config file,
+this script will:
+- read the <sweep_name>/<sweep_i>/sweep_i_0.json file to get the parameter values
+- extract the B cell counts and concentrations over time and compute the mean across replicates
+- plot the mean cell counts over time and save the plots to the `plot_dir` specified in
+the scripts config.yaml file
+- compute the mean GC size / antibody titers towards each epitope at end of simulation
+- save a `sweep_map.csv` file with the summary statistics to the directory sweep_dir/sweep_name
 """
 
 import os
 import sys
 from pathlib import Path
-
-sys.path.append(os.getcwd())
 
 import numpy as np
 import pandas as pd
@@ -22,11 +35,12 @@ from matplotlib.colors import LogNorm, Normalize
 import seaborn as sns
 import colorsys
 import functools
+from tap import tapify
 
-import hiv_code
-from hiv_code.simulation import Simulation
-from hiv_code import utils
-from scripts import SWEEP_DIR, PLOT_DIR
+import hiv_bnab
+from hiv_bnab.simulation import Simulation
+from hiv_bnab import utils
+from scripts import load_config
 
 slide_width = 11.5
 half_slide_width = 5.67
@@ -106,9 +120,7 @@ def epitope_colors(n_ep, ep_per_ag=3, n_ag=2):
         colors = sns.color_palette("Paired", 12)
         dom_ag = colors[-1::-2]
         subdom_ag = colors[-2::-2]
-        variable_ep = np.concatenate(
-            (dom_ag[0:n_variable_ep], subdom_ag[0:n_variable_ep])
-        )
+        variable_ep = np.concatenate((dom_ag[0:n_variable_ep], subdom_ag[0:n_variable_ep]))
         conserved_ep = dom_ag[(len(dom_ag) - n_conserved_ep) :]
         if len(variable_ep) == 0:
             return conserved_ep
@@ -120,12 +132,16 @@ def epitope_colors(n_ep, ep_per_ag=3, n_ag=2):
         return ValueError("ep_per_ag must either be 3 or 6.")
 
 
-def resort_directories(sweep_dir):
+def resort_directories(sweep_dir: Path):
     """Make sure all expirement directories within sweep_i directories have the same parameters.
-    If not, resort the directories so that this structure is maintained."""
+    If not, resort the directories so that this structure is maintained.
 
+    Args:
+        sweep_dir (Path): Path to the simulation sweep directory (e.g. sweep_dir/sweep_name)
+
+    """
     sweep_dir = Path(sweep_dir)
-    mapping_df = map_simdir_to_param(SWEEP_DIR / sweep_dir)
+    mapping_df = map_simdir_to_param(sweep_dir)
     group_keys = [col for col in mapping_df.columns if col not in ["path", "seed"]]
     dfs = []
     for param_dir in sweep_dir.iterdir():
@@ -137,29 +153,20 @@ def resort_directories(sweep_dir):
                     mapping_dict = {}
                     for key in params:
                         if key == "E1hs":
-                            n_ep = (
-                                params["n_conserved_epitopes"]
-                                + params["n_ag"] * params["n_variable_epitopes"]
-                            )
+                            n_ep = params["n_conserved_epitopes"] + params["n_ag"] * params["n_variable_epitopes"]
                             for i in range(n_ep):
-                                mapping_dict[f"E{i+1}h"] = np.round(
-                                    params["E1hs"][i], decimals=1
-                                )
+                                mapping_dict[f"E{i+1}h"] = np.round(params["E1hs"][i], decimals=1)
                         elif key == "naive_target_fractions":
                             for i in range(len(params[key])):
                                 # naive target fraction (ntf)
-                                mapping_dict[f"ntf{i+1}"] = params[
-                                    "naive_target_fractions"
-                                ][i]
+                                mapping_dict[f"ntf{i+1}"] = params["naive_target_fractions"][i]
                         elif key == "f_ag":
                             for i in range(len(params[key])):
                                 # naive target fraction (ntf)
                                 mapping_dict[f"f_ag{i+1}"] = params["f_ag"][i]
                         elif key != "experiment_dir" and key != "updated_params_file":
                             value = params[key]
-                            mapping_dict[key] = (
-                                tuple(value) if isinstance(value, list) else value
-                            )
+                            mapping_dict[key] = tuple(value) if isinstance(value, list) else value
                     # Identify which sweep directory this experiment belongs in based on parameters
                     mask = pd.Series([True] * len(mapping_df))
                     for key, value in mapping_dict.items():
@@ -176,11 +183,18 @@ def resort_directories(sweep_dir):
                     dfs.append(mapping_dict)
 
 
-def map_simdir_to_param(sweepdir):
+def map_simdir_to_param(sweepdir: Path):
     """Create a DataFrame which contains the relevant parameter values from the simulation
     (read from the sweep.json files) along with the path to the directory containing all
     the simulation replicates for that parameter set.
 
+    Args:
+        sweepdir (Path): Path to the simulation sweep directory (e.g.
+        sweep_dir/sweep_name)
+
+    Returns:
+        pd.DataFrame: DataFrame with the parameter values and the path to the directory containing all
+        the simulation replicates for that parameter set.
     """
     dfs = []
     for param_dir in sweepdir.iterdir():
@@ -193,19 +207,14 @@ def map_simdir_to_param(sweepdir):
             for key in swept_params:
                 if key == "E1hs":
                     n_ep = (
-                        swept_params["n_conserved_epitopes"]
-                        + swept_params["n_ag"] * swept_params["n_variable_epitopes"]
+                        swept_params["n_conserved_epitopes"] + swept_params["n_ag"] * swept_params["n_variable_epitopes"]
                     )
                     for i in range(n_ep):
-                        mapping_dict[f"E{i+1}h"] = np.round(
-                            swept_params["E1hs"][i], decimals=1
-                        )
+                        mapping_dict[f"E{i+1}h"] = np.round(swept_params["E1hs"][i], decimals=1)
                 elif key == "naive_target_fractions":
                     for i in range(len(swept_params[key])):
                         # naive target fraction (ntf)
-                        mapping_dict[f"ntf{i+1}"] = swept_params[
-                            "naive_target_fractions"
-                        ][i]
+                        mapping_dict[f"ntf{i+1}"] = swept_params["naive_target_fractions"][i]
                 elif key == "f_ag":
                     for i in range(len(swept_params[key])):
                         # naive target fraction (ntf)
@@ -241,10 +250,7 @@ def collapse_replicates(param_dir):
         return
     history = utils.expand(utils.read_pickle(replicates[0] / "history.pkl"))
     parameters = utils.read_json(replicates[0] / "parameters.json")
-    n_ep = (
-        parameters["n_conserved_epitopes"]
-        + parameters["n_ag"] * parameters["n_variable_epitopes"]
-    )
+    n_ep = parameters["n_conserved_epitopes"] + parameters["n_ag"] * parameters["n_variable_epitopes"]
     time = np.arange(history["gc"]["num_above_aff"].shape[0]) * parameters["tspan_dt"]
     results["time"] = time
     # make arrays thata are time x n_replicates x n_epitopes
@@ -283,23 +289,17 @@ def collapse_replicates(param_dir):
             for field in fields[:-3]:
                 results[field][:, j, i] = history[field]["num_above_aff"][:, 0, i, 0]
             # count mean # GC B cells that target each epitope in each replicate
-            results["gc"][:, j, i] = mean_fn(
-                history["gc"]["num_above_aff"][:, :, 0, i, 0]
-            )
+            results["gc"][:, j, i] = mean_fn(history["gc"]["num_above_aff"][:, :, 0, i, 0])
             # count mean # naive B cells that enter GC per day
-            results["naive_entry"][:, j, i] = mean_fn(
-                history["gc_entry"]["total_num"][:, :, 0, i, 0]
-            )
+            results["naive_entry"][:, j, i] = mean_fn(history["gc_entry"]["total_num"][:, :, 0, i, 0])
             # count mean # memory B cells that re-enter GC per day
-            results["memory_reentry"][:, j, i] = mean_fn(
-                history["gc_entry"]["total_num"][:, :, 0, i, 1]
-            )
+            results["memory_reentry"][:, j, i] = mean_fn(history["gc_entry"]["total_num"][:, :, 0, i, 1])
 
     # write summary files to directory with this unique parameter set
     utils.write_pickle(results, param_dir / "conc_cells.pkl")
 
 
-def plot_averages(df, sweep_dir, ep_per_ag):
+def plot_averages(df, sweep_dir, plot_dir, ep_per_ag):
     """Read from summary file and make plots."""
     # first figure out which parameters were swept, based on number of unique values in each column
     params = list(df.columns)
@@ -310,10 +310,7 @@ def plot_averages(df, sweep_dir, ep_per_ag):
     bcell_types = ["memory_gc", "plasma_gc", "plasma_egc"]
     concentrations = ["ab_conc", "ab_ka"]
     conc_titles = ["[Ab] (nM)", "$K_a$ (nM$^{-1}$)"]
-    n_ep = int(
-        df["n_conserved_epitopes"].iloc[0]
-        + df["n_variable_epitopes"].iloc[0] * df["n_ag"].iloc[0]
-    )
+    n_ep = int(df["n_conserved_epitopes"].iloc[0] + df["n_variable_epitopes"].iloc[0] * df["n_ag"].iloc[0])
     stats_list = []
     print(swept_params)
     mean_fn = functools.partial(np.mean, axis=1)
@@ -407,14 +404,12 @@ def plot_averages(df, sweep_dir, ep_per_ag):
             fig.suptitle(plottitle)
             fig.supxlabel("time (days)")
             fig.tight_layout()
-            plt.savefig(PLOT_DIR / f"{sweep_dir}_bcells_concs{plotname}_3rows.png")
+            plt.savefig(plot_dir / f"{sweep_dir}_bcells_concs{plotname}_3rows.png")
 
             """ Compute mean GC size / titer against each epitope at end of simulation """
             summary_stats = {"path": path}
             for i in range(n_ep):
-                summary_stats[f"ep{i+1}_titer_d400"] = np.mean(
-                    results["titer"][-1, :, i]
-                )
+                summary_stats[f"ep{i+1}_titer_d400"] = np.mean(results["titer"][-1, :, i])
             summary_stats["gc_size_d400"] = np.sum(
                 np.mean(results["gc"][-1, :, :], axis=0)
             )  # take last day, sum over n_ep
@@ -425,11 +420,15 @@ def plot_averages(df, sweep_dir, ep_per_ag):
     return df
 
 
+def analyze_sweep(config_file: str, sweep_name: str, ep_per_ag: int, resort_directories: bool = False):
+    config = load_config(config_file)
+    sweep_dir = Path(config["sweep_dir"])
+    df = map_simdir_to_param(sweep_dir / sweep_name)
+    if resort_directories:
+        resort_directories(sweep_dir / sweep_name)
+    df = plot_averages(df, sweep_name, Path(config["plot_dir"]), int(ep_per_ag))
+    df.to_csv((sweep_dir / sweep_name) / "sweep_map.csv", index=False)
+
+
 if __name__ == "__main__":
-    sweep_dir = sys.argv[1]
-    ep_per_ag = sys.argv[2]
-    # resort_directories(SWEEP_DIR/sweep_dir)
-    df = map_simdir_to_param(SWEEP_DIR / sweep_dir)
-    print(df["path"])
-    df = plot_averages(df, sweep_dir, int(ep_per_ag))
-    df.to_csv((SWEEP_DIR / sweep_dir) / "sweep_map.csv", index=False)
+    tapify(analyze_sweep)
