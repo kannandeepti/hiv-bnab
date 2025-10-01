@@ -10,7 +10,7 @@ neutralizing antibody therapy in people living with HIV.
 Our simulation algorithm is adapated from [^2], which investigated the 
 antibody response to sequential immunization with SARS-Cov-2 vaccines. 
 
-The module `hiv_code` contains the simulation code, and `scripts` contains a set
+The package `hiv_bnab` contains the simulation code, and `scripts` contains a set
 of scripts for running parameter sweeps on a SLURM scheduler and analyzing simulation output. The
 `simulations_for_paper` directory contains input yaml files for each of the parameter
 sweeps run in Kannan et al. (2025).

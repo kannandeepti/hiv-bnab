@@ -2,19 +2,19 @@
 # Edit these paths to match your local setup
 
 # Directory containing parameter sweep files
-sweep_dir: "/home/gridsan/dkannan/git-remotes/hiv-bnab/seeding_10_death_0.4_egc_ntfh_2000"
+sweep_dir: "/path/to/simulations_for_paper"
 
 # Directory for output plots
-plot_dir: "/home/gridsan/dkannan/git-remotes/hiv-bnab/plots"
+plot_dir: "/path/to/plots"
 
 # Directory for log files
-log_dir: "/home/gridsan/dkannan/git-remotes/hiv-bnab/log_files"
+log_dir: "/path/to/log_files"
 
 #Base slurm parameters for running jobs
 conda_env: GCdynamics
 #include if you want the script to explicitly append the conda environment path to the
 #$PATH environment in the SLURM submission script
-path_to_conda_env: /home/gridsan/dkannan/.conda/envs/GCdynamics
+path_to_conda_env: /path/to/conda/envs/GCdynamics
 subsmission_script_prepend:
 #add these lines to the slurm submission script before the python command
 #could be cluster specific, so modify as needed
